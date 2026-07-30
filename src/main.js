@@ -17,7 +17,7 @@ import { Menu } from './menu.js';
 import { startAudio, resumeAudio, configureAudio, sfx } from './audio.js';
 import {
   GRID_W, GRID_H, MAX_ORCS, BUILDS, BASE_HP, START_GOLD, ORC_TYPES, PARAMS, SPAWN_BATCH,
-  DENS_W, DENS_H, DENS_SCALE, ABILITIES,
+  DENS_W, DENS_H, DENS_SCALE, ABILITIES, SPEEDS,
 } from './config.js';
 
 // No ?map= means the title screen: the game still boots and plays itself behind
@@ -29,7 +29,9 @@ const BENCH = PARAMS.get('bench') === '1';
 // the mouse. ?speed=N runs N sim substeps per frame so a full run takes seconds.
 const AUTOPLAY_PARAM = PARAMS.get('autoplay') === '1';
 const isAutoplay = () => AUTOPLAY_PARAM || attract;
-const SPEED = Math.max(1, Math.min(16, Number(PARAMS.get('speed')) || 1));
+const SPEED_PARAM = Math.max(0, Math.min(16, Number(PARAMS.get('speed')) || 0));
+// Fast forward is a real feature, not just a test-harness knob.
+let simSpeed = SPEED_PARAM || save.settings.speed || 1;
 const WAVES_PARAM = Number(PARAMS.get('waves')) || 0;
 let TARGET_WAVES = Math.max(1, WAVES_PARAM || MAPS[mapIndex].waves || 12);
 
@@ -48,6 +50,7 @@ if (attract) document.body.classList.add('attract');
 
 const hud = new Hud({
   onSelect: (i) => { state.selected = i; },
+  onSpeed: () => cycleSpeed(),
   onStress: () => stress(10000),
   onFlood: () => flood(),
   onRestart: () => location.reload(),
@@ -187,7 +190,7 @@ function endRun(won) {
 }
 
 // ---- camera fit -------------------------------------------------------------
-let zoom = 1;
+let zoom = 1.25;          // the reference plays zoomed in, not fit to map
 function resize() {
   const w = innerWidth, h = innerHeight;
   renderer.setSize(w, h);
@@ -241,6 +244,13 @@ renderer.domElement.addEventListener('pointerdown', (ev) => {
   // Clicking a turret upgrades it. At the build cap that is the only way to keep
   // up with the wave curve, so it needs to be the obvious action.
   const existing = build.turretAt(world);
+  if (existing && ev.shiftKey) {
+    const refund = build.sell(existing);
+    state.gold += refund;
+    sfx.place();
+    hud.toast(`sold for ${refund}g`);
+    return;
+  }
   if (existing) {
     const up = build.upgradeCost(existing);
     if (existing.level >= build.maxLevel()) { hud.toast('already max level'); sfx.denied(); return; }
@@ -291,6 +301,8 @@ addEventListener('keydown', (ev) => {
     if (state.paused) menu.showPause(); else menu.hidePause();
   } else if (ABILITIES.some((a) => a.key === ev.key.toLowerCase())) {
     fireAbility(ABILITIES.find((a) => a.key === ev.key.toLowerCase()));
+  } else if (ev.key === 't' || ev.key === 'T') {
+    cycleSpeed();
   } else if (ev.key === 'g' || ev.key === 'G') {
     if (state.sandbox) { state.sandbox = false; hud.toast('sandbox off'); }
     else { enterSandbox(); hud.toast('sandbox on: base invulnerable'); }
@@ -341,6 +353,29 @@ function flood(count = Math.floor(MAX_ORCS / 2)) {
   }
   hud.toast(`flooding ${batches * SPAWN_BATCH} orcs`);
 }
+
+function cycleSpeed() {
+  const i = SPEEDS.indexOf(simSpeed);
+  simSpeed = SPEEDS[(i + 1) % SPEEDS.length] ?? 1;
+  save.setSetting('speed', simSpeed);
+  hud.toast(`${simSpeed}x speed`);
+  sfx.click();
+}
+
+// The reference puts a prompt in the middle of the screen during the build phase.
+// It doubles as the wave callout, which is the clearest place for both.
+function bannerText() {
+  if (attract || state.over) return '';
+  if (state.paused) return '';
+  if (waves.state === 'idle') return '<b>BUILD PHASE</b><span>press SPACE to start the battle</span>';
+  if (waves.state === 'build') {
+    return `<b>BUILD PHASE</b><span>SPACE for wave ${waves.wave + 1} of ${TARGET_WAVES}`
+      + ` &middot; +${waves.rushBonus()}g if you rush it</span>`;
+  }
+  if (state.time - waveShownAt < 1.6) return `<b>WAVE ${waves.wave}</b><span>of ${TARGET_WAVES}</span>`;
+  return '';
+}
+let waveShownAt = -9;
 
 function callWave() {
   const bonus = waves.rushBonus();
@@ -532,7 +567,7 @@ globalThis.__orcflow = () => ({
   kills: horde.stats.kills, leaks: horde.stats.leaks, gold: state.gold,
   turrets: build.turrets.length, blasts: build.blasts.length,
   hp: state.hp, over: state.over, won: state.won, sandbox: state.sandbox,
-  wave: waves.wave, waveState: waves.state, target: TARGET_WAVES, speed: SPEED,
+  wave: waves.wave, waveState: waves.state, target: TARGET_WAVES, speed: simSpeed,
   queued: horde._spawnQueue.length, lastError: globalThis.__orcflowError ?? null,
 });
 
@@ -568,7 +603,7 @@ function step(now) {
   // Sim substeps rather than a bigger dt: a fat dt would tunnel orcs through
   // rock. At sub-millisecond compute, 8 substeps a frame is free, and it lets an
   // automated playtest finish a 12-wave run in well under a minute.
-  for (let sub = 0; sub < SPEED && !state.paused && !state.over; sub++) tick(dt);
+  for (let sub = 0; sub < simSpeed && !state.paused && !state.over; sub++) tick(dt);
 
   effects.sync(build.turrets, build.segments, build.blasts, state.time);
   const b = BUILDS[state.selected];
@@ -590,7 +625,7 @@ function step(now) {
     alive: horde.stats.alive, kills: horde.stats.kills,
     wave: waves.wave, mapName: `${field.name}${BENCH ? '  [BENCH]' : ''}${isAutoplay() ? '  [AUTOPLAY]' : ''}`,
     waveText: waveText(),
-    fps, ms: msAvg, computeMs, renderMs,
+    fps, ms: msAvg, computeMs, renderMs, speed: simSpeed, banner: bannerText(),
     spawned: horde.stats.spawned, cap: MAX_ORCS, selected: state.selected,
     recycling: horde.stats.recycling === true,
     costs: BUILDS.map((b) => build.costOf(b)),
@@ -634,7 +669,11 @@ function tick(dt) {
     sfx.turretFire(build.turrets.length, state.time);
     if (build.blasts.length > audioState.blasts) sfx.blast();
     audioState.blasts = build.blasts.length;
-    if (waves.wave !== audioState.wave) { audioState.wave = waves.wave; if (waves.wave > 0) sfx.waveHorn(); }
+    if (waves.wave !== audioState.wave) {
+      audioState.wave = waves.wave;
+      waveShownAt = state.time;
+      if (waves.wave > 0) sfx.waveHorn();
+    }
   }
 }
 

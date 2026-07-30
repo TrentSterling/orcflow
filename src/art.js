@@ -146,6 +146,24 @@ export function makeTurretAtlas() {
   return pixelTexture(c);
 }
 
+// Level pips: one tile per turret level, so an upgraded turret is readable at a
+// glance instead of only in its damage numbers.
+export function makeLevelStrip(levels = 6) {
+  const tw = 16, th = 5;
+  const c = canvas(tw * levels, th);
+  const ctx = c.getContext('2d');
+  for (let lv = 1; lv <= levels; lv++) {
+    const ox = (lv - 1) * tw;
+    for (let i = 0; i < levels; i++) {
+      const x = ox + 2 + i * ((tw - 4) / levels);
+      const filled = i < lv;
+      ctx.fillStyle = filled ? (lv === levels ? '#ffe98a' : PALETTE.gold) : 'rgba(0,0,0,0.55)';
+      ctx.fillRect(x, 1, 1.6, 3);
+    }
+  }
+  return pixelTexture(c);
+}
+
 // Soft additive blob for muzzle flashes, blasts and beam glow.
 export function makeGlow() {
   const c = canvas(64, 64);

@@ -8,7 +8,7 @@
 //   bounce  -> one segment per reflection leg, zig-zagging off rock
 //   mortar  -> blasts, which are discs with a short life
 
-import { CELL_SCALE, RAMPART, TURRET_SIZE, BLAST_LIFE, MAX_BLASTS, MAX_TURRETS, MAX_BUILT, NO_BUILD_RADIUS, ABILITIES } from '../config.js';
+import { CELL_SCALE, RAMPART, TURRET_SIZE, BLAST_LIFE, MAX_BLASTS, MAX_TURRETS, MAX_BUILT, NO_BUILD_RADIUS, ABILITIES, SELL_REFUND } from '../config.js';
 
 let nextId = 1;
 
@@ -80,8 +80,16 @@ export class Build {
 
   maxLevel() { return 6; }
 
+  sell(t) {
+    const i = this.turrets.indexOf(t);
+    if (i < 0) return 0;
+    this.turrets.splice(i, 1);
+    return Math.round((t.spent ?? t.baseCost) * SELL_REFUND);
+  }
+
   upgrade(t) {
     if (t.level >= this.maxLevel()) return 'max level';
+    t.spent = (t.spent ?? t.baseCost) + this.upgradeCost(t);
     t.level++;
     t.dps *= 1.6;
     t.hitsPerSec *= 1.5;
@@ -162,6 +170,7 @@ export class Build {
       id: nextId++,
       level: 1,
       baseCost: build.cost,
+      spent: this.costOf(build),
       x: c.x, y: c.y,
       type: build.type,
       range: build.range,

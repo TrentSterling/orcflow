@@ -6,12 +6,13 @@ import { BUILDS, ABILITIES } from './config.js';
 const $ = (id) => document.getElementById(id);
 
 export class Hud {
-  constructor({ onSelect, onStress, onFlood }) {
+  constructor({ onSelect, onStress, onFlood, onSpeed }) {
     this.el = {
       hud: $('hud'), boot: $('boot'), bootmsg: $('bootmsg'),
       hpfill: $('hpfill'), hptext: $('hptext'),
       gold: $('c-gold'), orcs: $('c-orcs'), kills: $('c-kills'), towers: $('c-towers'),
       waveN: $('w-n'), waveS: $('w-s'), waveMap: $('w-map'),
+      speed: $('w-speed'), banner: $('banner'),
       fps: $('b-fps'), ms: $('b-ms'), compute: $('b-compute'), render: $('b-render'),
       alive: $('b-alive'), spawned: $('b-spawned'), cap: $('b-cap'),
       bar: $('bar'), toast: $('toast'), over: $('over'),
@@ -39,6 +40,7 @@ export class Hud {
     const about = $('about');
     $('aboutbtn').addEventListener('click', () => about.classList.toggle('show'));
 
+    $('w-speed').addEventListener('click', () => onSpeed?.());
     $('b-stress').addEventListener('click', onStress);
     $('b-flood').addEventListener('click', onFlood);
     this._toastTimer = 0;
@@ -79,6 +81,15 @@ export class Hud {
     e.waveN.textContent = s.wave;
     e.waveS.textContent = s.waveText;
     e.waveMap.textContent = s.mapName;
+    e.speed.textContent = `${s.speed}x`;
+    e.speed.classList.toggle('fast', s.speed > 1);
+
+    const phase = s.banner ?? '';
+    if (phase !== this._banner) {
+      this._banner = phase;
+      e.banner.innerHTML = phase;
+      e.banner.classList.toggle('show', phase !== '');
+    }
 
     e.fps.textContent = s.fps.toFixed(0);
     e.ms.textContent = `${s.ms.toFixed(1)} ms`;

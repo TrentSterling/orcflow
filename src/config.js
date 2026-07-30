@@ -107,4 +107,11 @@ export const ABILITIES = [
   },
 ];
 
+// Speeds the player can pick. The sim runs N fixed substeps a frame rather than a
+// fatter dt, so fast forward is exact rather than sloppy.
+export const SPEEDS = [1, 2, 3, 5];
+
+// Selling refunds this share of everything sunk into a turret.
+export const SELL_REFUND = 0.6;
+
 export const BLAST_LIFE = 0.45;          // seconds a mortar blast applies damage

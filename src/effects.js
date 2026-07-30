@@ -4,7 +4,7 @@
 
 import * as THREE from 'three/webgpu';
 import { texture, uv, vec2 } from 'three/tsl';
-import { makeTurretAtlas, makeGlow, makeBeam } from './art.js';
+import { makeTurretAtlas, makeGlow, makeBeam, makeLevelStrip } from './art.js';
 
 const TURRET_SIZE = 2.7;
 // turret behaviour -> atlas tile (blades, emitter, emitter, mortar)
@@ -40,6 +40,19 @@ export class Effects {
       map: this.glowTex, transparent: true, depthWrite: false, opacity: 0.3,
       blending: THREE.AdditiveBlending,
     });
+
+    // one cutout material per level, same trick as the turret tiles
+    this.levelTex = makeLevelStrip(6);
+    this.levelMats = Array.from({ length: 6 }, (_, i) => {
+      const m = new THREE.MeshBasicNodeMaterial();
+      const uvNode = vec2(uv().x.add(i).div(6), uv().y);
+      m.colorNode = texture(this.levelTex, uvNode);
+      m.opacityNode = texture(this.levelTex, uvNode).a;
+      m.alphaTest = 0.3;
+      m.transparent = false;
+      return m;
+    });
+    this.levelPool = [];
 
     this.quad = new THREE.PlaneGeometry(1, 1);
     this.turretPool = [];
@@ -88,7 +101,7 @@ export class Effects {
   // `segments` are flat {x0,y0,x1,y1,width,hot} beams: one for a locked beam,
   // one per leg for a bouncing one. The renderer does not care which.
   sync(turrets, segments, blasts, time) {
-    let ti = 0, bi = 0, gi = 0, zi = 0;
+    let ti = 0, bi = 0, gi = 0, zi = 0, li = 0;
 
     for (const t of turrets) {
       const tile = TILE_FOR_TYPE[t.type] ?? 0;
@@ -96,11 +109,21 @@ export class Effects {
       mesh.material = this.turretMats[tile];
       mesh.position.set(t.x, t.y, 0.4);
       // Every turret is the size of its platform; the kill zone is shown by the
-      // wash underneath instead of by inflating the sprite.
-      mesh.scale.set(TURRET_SIZE, TURRET_SIZE, 1);
+      // wash underneath instead of by inflating the sprite. Levels add a little
+      // heft on top of that, so upgrades are visible in the silhouette too.
+      const lv = t.level ?? 1;
+      const grow = TURRET_SIZE * (1 + (lv - 1) * 0.06);
+      mesh.scale.set(grow, grow, 1);
       // blades spin, emitters point where they aim, mortars sit still
       mesh.rotation.z = t.type === 0 ? time * 5.5 : (t.type === 3 ? 0 : t.angle);
       ti++;
+
+      // pip strip under the turret
+      const pips = this.#at(this.levelPool, li, this.levelMats[Math.min(5, lv - 1)]);
+      pips.material = this.levelMats[Math.min(5, lv - 1)];
+      pips.position.set(t.x, t.y - TURRET_SIZE * 0.62, 0.45);
+      pips.scale.set(TURRET_SIZE * 0.95, TURRET_SIZE * 0.3, 1);
+      li++;
 
       if (t.type === 0) {
         // wash at the real damage diameter
@@ -144,6 +167,7 @@ export class Effects {
       gi++;
     }
 
+    this.#hideFrom(this.levelPool, li);
     this.#hideFrom(this.turretPool, ti);
     this.#hideFrom(this.beamPool, bi);
     this.#hideFrom(this.glowPool, gi);
