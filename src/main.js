@@ -22,27 +22,29 @@ import {
 
 // No ?map= means the title screen: the game still boots and plays itself behind
 // the menu, so the front of the game is never a static picture.
-const MENU_MODE = PARAMS.get('map') === null;
-const mapIndex = Math.min(MAPS.length - 1, Math.max(0, Number(PARAMS.get('map')) || 0));
+let attract = PARAMS.get('map') === null;
+let mapIndex = Math.min(MAPS.length - 1, Math.max(0, Number(PARAMS.get('map')) || 0));
 const BENCH = PARAMS.get('bench') === '1';
 // A baseline bot plays the map so a run can be judged without a human holding
 // the mouse. ?speed=N runs N sim substeps per frame so a full run takes seconds.
-const AUTOPLAY = PARAMS.get('autoplay') === '1' || MENU_MODE;
+const AUTOPLAY_PARAM = PARAMS.get('autoplay') === '1';
+const isAutoplay = () => AUTOPLAY_PARAM || attract;
 const SPEED = Math.max(1, Math.min(16, Number(PARAMS.get('speed')) || 1));
-const TARGET_WAVES = Math.max(1, Number(PARAMS.get('waves')) || MAPS[mapIndex].waves || 12);
+const WAVES_PARAM = Number(PARAMS.get('waves')) || 0;
+let TARGET_WAVES = Math.max(1, WAVES_PARAM || MAPS[mapIndex].waves || 12);
 
 const state = {
   hp: BASE_HP, hpMax: BASE_HP, gold: START_GOLD,
   selected: 1, paused: false, over: false, won: false, time: 1,
   // attract mode must never end, and never records a result
-  sandboxAttract: MENU_MODE,
+
   // The stress tools spawn orcs on top of the base, which would end the run in
   // one frame. Anything that floods the board turns this on.
   sandbox: false,
 };
 
 configureAudio(save.settings);
-if (MENU_MODE) document.body.classList.add('attract');
+if (attract) document.body.classList.add('attract');
 
 const hud = new Hud({
   onSelect: (i) => { state.selected = i; },
@@ -96,16 +98,16 @@ const waves = new Waves(field, horde);
 const refreshField = () => { flowTex.needsUpdate = true; ap.cells = null; };
 
 const menu = new Menu({
-  onStart: (i) => { location.search = `?map=${i}`; },
+  onStart: (i) => startMap(i),
   onResume: () => { state.paused = false; menu.hidePause(); },
-  onRestart: () => location.reload(),
-  onQuit: () => { location.search = ''; },
+  onRestart: () => startMap(mapIndex),
+  onQuit: () => toTitle(),
   onSetting: (key, value) => {
     if (key === 'sfx' || key === 'music') configureAudio({ [key]: value });
     if (key === 'showBench') applyBenchVisibility();
   },
 });
-if (MENU_MODE) { menu.show(); state.sandbox = true; }
+if (attract) { menu.show(); state.sandbox = true; }
 
 function applyBenchVisibility() {
   const show = save.settings.showBench || BENCH || PARAMS.get('perf') === '1';
@@ -113,18 +115,64 @@ function applyBenchVisibility() {
 }
 applyBenchVisibility();
 
-document.getElementById('over-retry').onclick = () => location.reload();
-document.getElementById('over-next').onclick = () => { location.search = `?map=${mapIndex + 1}`; };
-document.getElementById('over-menu').onclick = () => { location.search = ''; };
+document.getElementById('over-retry').onclick = () => startMap(mapIndex);
+document.getElementById('over-next').onclick = () => startMap(mapIndex + 1);
+document.getElementById('over-menu').onclick = () => toTitle();
+
+// Every restart, map change and trip to the title happens in place. Reloading the
+// page meant staring at "starting WebGPU" every single time.
+async function resetRun() {
+  state.paused = true;
+  field.load(MAPS[mapIndex]);
+  ground.rebuild();
+  refreshField();
+  build.reset();
+  waves.reset();
+  ap.cells = null;
+  ap.cursor = 0;
+  audioState.kills = 0;
+  audioState.blasts = 0;
+  audioState.wave = 0;
+  await horde.reset();
+  state.hp = BASE_HP;
+  state.gold = START_GOLD;
+  state.over = false;
+  state.won = false;
+  state.won = false;
+  state.time = 1;
+  state.sandbox = attract;
+  state.selected = 1;
+  document.getElementById('over').classList.remove('show');
+  menu.hidePause();
+  state.paused = false;
+}
+
+async function startMap(i) {
+  mapIndex = ((i % MAPS.length) + MAPS.length) % MAPS.length;
+  TARGET_WAVES = Math.max(1, WAVES_PARAM || MAPS[mapIndex].waves || 12);
+  attract = false;
+  document.body.classList.remove('attract');
+  menu.hide();
+  history.replaceState(null, '', `?map=${mapIndex}`);
+  await resetRun();
+}
+
+async function toTitle() {
+  attract = true;
+  document.body.classList.add('attract');
+  history.replaceState(null, '', location.pathname);
+  await resetRun();
+  menu.show();
+}
 
 // One place decides a run is finished, so saving and audio cannot drift apart.
 function endRun(won) {
   if (state.over) return;
   state.over = true;
   state.won = won;
-  if (!MENU_MODE && !BENCH) {
+  if (!attract && !BENCH) {
     save.recordRun({
-      map: mapIndex, wave: waves.wave, won,
+      map: mapIndex, wave: waves.wave, won, target: TARGET_WAVES,
       kills: horde.stats.kills, mapCount: MAPS.length,
     });
   }
@@ -235,7 +283,7 @@ addEventListener('keydown', (ev) => {
     ev.preventDefault();
     callWave();
   } else if (ev.key === 'Escape') {
-    if (MENU_MODE) return;
+    if (attract) return;
     state.paused = !state.paused;
     if (state.paused) menu.showPause(); else menu.hidePause();
   } else if (ev.key === 'p' || ev.key === 'P') {
@@ -247,10 +295,9 @@ addEventListener('keydown', (ev) => {
     if (state.sandbox) { state.sandbox = false; hud.toast('sandbox off'); }
     else { enterSandbox(); hud.toast('sandbox on: base invulnerable'); }
   } else if (ev.key === 'm' || ev.key === 'M') {
-    const next = (mapIndex + 1) % MAPS.length;
-    location.search = `?map=${next}${BENCH ? '&bench=1' : ''}`;
+    startMap((mapIndex + 1) % MAPS.length);
   } else if (ev.key === 'r' || ev.key === 'R') {
-    location.reload();
+    startMap(mapIndex);
   }
 });
 
@@ -541,7 +588,7 @@ function step(now) {
   hud.update({
     hp: state.hp, hpMax: state.hpMax, gold: state.gold,
     alive: horde.stats.alive, kills: horde.stats.kills,
-    wave: waves.wave, mapName: `${field.name}${BENCH ? '  [BENCH]' : ''}${AUTOPLAY ? '  [AUTOPLAY]' : ''}`,
+    wave: waves.wave, mapName: `${field.name}${BENCH ? '  [BENCH]' : ''}${isAutoplay() ? '  [AUTOPLAY]' : ''}`,
     waveText: waveText(),
     fps, ms: msAvg, computeMs, renderMs,
     spawned: horde.stats.spawned, cap: MAX_ORCS, selected: state.selected,
@@ -555,7 +602,7 @@ function step(now) {
 function tick(dt) {
   {
     state.time += dt;
-    if (AUTOPLAY) autoplay(dt);
+    if (isAutoplay()) autoplay(dt);
     if (BENCH) {
       if (state.time > bench.next) {
         bench.next += 2;
@@ -578,7 +625,7 @@ function tick(dt) {
     }
 
     // Held every wave up to the target: that is a win.
-    if (!BENCH && !MENU_MODE && waves.wave >= TARGET_WAVES && waves.state === 'build') endRun(true);
+    if (!BENCH && !attract && waves.wave >= TARGET_WAVES && waves.state === 'build') endRun(true);
 
     // Audio is driven off deltas, never per orc: tens of thousands die per wave.
     const dk = horde.stats.kills - audioState.kills;

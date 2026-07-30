@@ -168,6 +168,12 @@ export class Horde {
       att.element(instanceIndex).assign(vec4(1, 0, -1000, 0.5));
     })().compute(MAX_ORCS);
 
+    // Zeroes the monotonic counters, so a restart starts from a clean score
+    // without the CPU having to track an offset.
+    this.counterResetPass = Fn(() => {
+      atomicStore(cnt.element(instanceIndex), uint(0));
+    })().compute(4);
+
     // ---- pass: spawn -------------------------------------------------------
     this.spawnPass = Fn(() => {
       If(int(instanceIndex).lessThan(u.spawnCount), () => {
@@ -361,6 +367,22 @@ export class Horde {
   }
 
   async init() {
+    await this.renderer.computeAsync(this.initPass);
+  }
+
+  // Full wipe for a restart: every slot emptied, every counter zeroed.
+  async reset() {
+    this.cursor = 0;
+    this._spawnQueue.length = 0;
+    this.stats = { kills: 0, leaks: 0, gold: 0, spawned: 0, alive: 0, recycled: 0, recycling: false };
+    this._lastCounters = [0, 0, 0, 0];
+    this.pendingGold = 0;
+    this.pendingLeaks = 0;
+    this.density = new Uint32Array(DENS_W * DENS_H);
+    this.u.turretCount.value = 0;
+    this.u.blastCount.value = 0;
+    this.initPass.count = MAX_ORCS;
+    await this.renderer.computeAsync(this.counterResetPass);
     await this.renderer.computeAsync(this.initPass);
   }
 

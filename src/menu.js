@@ -75,11 +75,12 @@ export class Menu {
       const unlocked = save.isUnlocked(i);
       const card = el('button', `mapcard${unlocked ? '' : ' locked'}`);
       const best = save.bestWave(i);
+      const note = save.isCleared(i) ? 'CLEARED' : best ? `best wave ${best}` : 'not yet held';
       card.innerHTML = `
         <div class="mi">${String(i + 1).padStart(2, '0')}</div>
         <div class="mn">${map.name}</div>
-        <div class="mw">${map.waves} waves</div>
-        <div class="mb">${save.isCleared(i) ? 'CLEARED' : best ? `best wave ${best}` : unlocked ? 'not yet held' : 'locked'}</div>`;
+        <div class="mw">${map.waves} waves${best ? ` &middot; best ${best}` : ''}</div>
+        <div class="mb">${note}</div>`;
       card.disabled = !unlocked;
       card.onclick = () => { sfx.click(); this.cb.onStart(i); };
       this.mapList.appendChild(card);
@@ -142,7 +143,13 @@ export class Menu {
     back.onclick = () => { sfx.click(); this.showMain(); };
     const wipe = el('button', 'mbtn danger', 'WIPE PROGRESS');
     wipe.onclick = () => {
-      if (wipe.dataset.armed) { save.wipe(); location.reload(); return; }
+      if (wipe.dataset.armed) {
+        save.wipe();
+        wipe.textContent = 'WIPED';
+        delete wipe.dataset.armed;
+        this.refreshMaps();
+        return;
+      }
       wipe.dataset.armed = '1';
       wipe.textContent = 'REALLY WIPE?';
     };

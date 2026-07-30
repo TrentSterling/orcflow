@@ -33,6 +33,16 @@ export class Waves {
     this.speedScale = 1;
   }
 
+  reset() {
+    this.wave = 0;
+    this.state = 'idle';
+    this.timer = 0;
+    this.active = [];
+    this.portal = 0;
+    this.hpScale = 1;
+    this.speedScale = 1;
+  }
+
   get remaining() {
     return this.active.reduce((a, e) => a + Math.ceil(e.count), 0);
   }

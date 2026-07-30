@@ -50,14 +50,20 @@ export const save = {
 
   bestWave(map) { return cache.best[map] ?? 0; },
   isCleared(map) { return cache.cleared[map] === true; },
-  isUnlocked(map) { return map < cache.unlocked; },
+  // Every map is playable from the start. Progression is what you have CLEARED
+  // and your best wave, not a gate that a single hard map can slam shut.
+  isUnlocked() { return true; },
+
+  // How far you have to get on a map before the next one opens. Requiring a full
+  // clear meant one hard map could wall the whole campaign shut.
+  unlockAt(target) { return Math.max(1, Math.ceil(target * 0.6)); },
 
   // Called when a run ends, win or lose.
-  recordRun({ map, wave, won, kills, mapCount }) {
+  recordRun({ map, wave, won, kills, mapCount, target }) {
     cache.best[map] = Math.max(cache.best[map] ?? 0, wave);
     cache.totalKills += kills;
-    if (won) {
-      cache.cleared[map] = true;
+    if (won) cache.cleared[map] = true;
+    if (won || wave >= this.unlockAt(target ?? 99)) {
       cache.unlocked = Math.min(mapCount, Math.max(cache.unlocked, map + 2));
     }
     this.flush();

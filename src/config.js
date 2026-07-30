@@ -91,7 +91,7 @@ export const BUILDS = [
 // nine blades.
   { key: '2', id: 'blades', name: 'BLADES',  cost: 60,  kind: 'turret', type: 0, range: 5.5,  dps: 95,  hitsPerSec: 300 },
   { key: '3', id: 'beam',   name: 'BEAM',    cost: 170, kind: 'turret', type: 1, range: 26.0, dps: 430, width: 1.0, dwell: 1.5, hitsPerSec: 150 },
-  { key: '4', id: 'bounce', name: 'BOUNCE',  cost: 210, kind: 'turret', type: 2, range: 74.0, dps: 260, width: 0.8, bounces: 5, sweep: 0.5, hitsPerSec: 230 },
+  { key: '4', id: 'bounce', name: 'BOUNCE',  cost: 210, kind: 'turret', type: 2, range: 40.0, dps: 260, width: 0.8, bounces: 4, sweep: 0.5, hitsPerSec: 230 },
   { key: '5', id: 'mortar', name: 'MORTAR',  cost: 240, kind: 'turret', type: 3, range: 30.0, dps: 900, blast: 4.2, cooldown: 2.4, hitsPerSec: 520 },
 ];
 

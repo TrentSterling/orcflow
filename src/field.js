@@ -33,14 +33,24 @@ export class Field {
     this.flow = new Uint8Array(this.w * this.h * 4);
     this.spawns = [];
     this.base = null;
+    this.load(mapDef);
+  }
+
+  // Reload any map into this instance. Everything downstream keeps its reference,
+  // which is what lets a restart or a map change happen without a page reload.
+  load(mapDef) {
     this.name = mapDef.name;
-    this.#load(mapDef);
+    this.mapDef = mapDef;
+    this.walls.fill(0);
+    this.spawns = [];
+    this.base = null;
+    this.#parse(mapDef);
     this.bake();
   }
 
   // Authored rows are top-down; the grid is y-up so world coordinates match the
   // picture you drew.
-  #load(mapDef) {
+  #parse(mapDef) {
     for (let ay = 0; ay < AUTHOR_H; ay++) {
       const row = (mapDef.rows[ay] ?? '').padEnd(AUTHOR_W, '.');
       for (let ax = 0; ax < AUTHOR_W; ax++) {
@@ -115,12 +125,19 @@ export class Field {
 
   // March a ray until it hits rock. Returns the last open point, how far it got,
   // and which axis was crossed so a beam can be reflected off that face.
+  // Turrets stand on rock, so a ray almost always starts inside solid geometry.
+  // Rock is ignored until the ray first reaches open ground, otherwise every beam
+  // terminates at zero length against the platform it was fired from.
   rayHit(x, y, dx, dy, maxLen, step = 0.18) {
     let px = x, py = y, d = 0;
+    let leaving = this.isWall(Math.floor(x), Math.floor(y));
     while (d < maxLen) {
       const nx = px + dx * step, ny = py + dy * step;
       const cellX = Math.floor(nx), cellY = Math.floor(ny);
-      if (this.isWall(cellX, cellY)) {
+      const solid = this.isWall(cellX, cellY);
+      if (leaving) {
+        if (!solid) leaving = false;
+      } else if (solid) {
         const axis = cellX !== Math.floor(px) ? 'x' : 'y';
         return { x: px, y: py, dist: d, axis };
       }

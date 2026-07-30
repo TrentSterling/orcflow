@@ -32,6 +32,14 @@ export class Build {
     this.cooldowns = Object.fromEntries(ABILITIES.map((a) => [a.id, 0]));
   }
 
+  reset() {
+    this.turrets.length = 0;
+    this.blasts.length = 0;
+    this.segments.length = 0;
+    this.counts = {};
+    for (const id in this.cooldowns) this.cooldowns[id] = 0;
+  }
+
   // ---- active abilities -----------------------------------------------------
   abilityReady(a) { return (this.cooldowns[a.id] ?? 0) <= 0; }
 

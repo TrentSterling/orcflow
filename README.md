@@ -23,8 +23,8 @@ moat in 2026? No. Finishing a game still is, so this one got finished.
 
 ## The game
 
-Four maps, each with its own wave target and turret limit. Hold every wave and the
-next map unlocks. Progress, best waves and settings persist in localStorage.
+Twelve maps, each with its own wave target. Progress, best waves and settings
+persist in localStorage.
 
 | # | map | waves | shape |
 |---|---|---|---|
@@ -33,6 +33,16 @@ next map unlocks. Progress, best waves and settings persist in localStorage.
 | 3 | THE SNAKE | 14 | one long serpentine corridor |
 | 4 | PILLARS | 13 | open bowl, pillar lattice |
 | 5 | CHICANE | 12 | staggered walls, wide pockets |
+| 6 | THE COMB | 12 | vertical fingers, ten parallel lanes |
+| 7 | THE FUNNEL | 12 | diagonal walls narrowing to one choke |
+| 8 | TWIN GATES | 13 | two portals, two fronts at once |
+| 9 | ISLANDS | 13 | scattered platforms, open water between |
+| 10 | THE BASIN | 14 | walled bowl around the base, two gates |
+| 11 | THE GAUNTLET | 14 | long switchbacks with rooms |
+| 12 | THE SPIRAL | 13 | wound inward to a centre base |
+
+Every map is playable from the start: progression is which ones you have CLEARED
+and your best wave on each, not a gate one hard map can slam shut.
 
 **Turrets are built on the rock**, on the plateaus above the trenches the orcs
 walk. Placement can therefore never block a path, and a rampart does double duty:
@@ -117,7 +127,7 @@ device does not expose `timestamp-query`.
 ```
 node --test test/field.test.mjs                 # 8 tests: flow field logic, pure JS
 node tools/smoke.mjs "http://localhost:8099/?bench=1&perf=1" 12
-node tools/playtest.mjs                         # bot plays all 4 maps, prints verdicts
+node tools/playtest.mjs                         # bot plays the maps, prints verdicts
 ```
 
 `tools/smoke.mjs` drives a real browser over CDP, collects console output and
