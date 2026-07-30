@@ -22,7 +22,9 @@ export class Hud {
     this.slots = BUILDS.map((b, i) => {
       const el = document.createElement('div');
       el.className = 'slot';
-      el.innerHTML = `<div class="k">${b.key}</div><div class="n">${b.name}</div><div class="c">${b.cost}g</div>`;
+      el.innerHTML = `<div class="k">${b.key}</div><div class="n">${b.name}</div>`
+        + `<div class="c">${b.cost}g</div>`
+        + (b.limit ? '<div class="lim"></div>' : '');
       el.addEventListener('click', () => onSelect(i));
       this.el.bar.appendChild(el);
       return el;
@@ -117,6 +119,14 @@ export class Hud {
       if (c.dataset.price !== String(price)) {
         c.dataset.price = String(price);
         c.textContent = `${fmt(price)}g`;
+      }
+      const lim = el.querySelector('.lim');
+      if (lim && s.built) {
+        const used = s.built[BUILDS[i].id] ?? 0;
+        const max = BUILDS[i].limit;
+        const text = `${used}/${max}`;
+        if (lim.textContent !== text) lim.textContent = text;
+        lim.classList.toggle('full', used >= max);
       }
     });
   }

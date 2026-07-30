@@ -8,15 +8,16 @@ import { ORC_TYPES } from '../config.js';
 // press the button instead of idling.
 const RUSH_BONUS_PER_SEC = 8;
 
-// Headcount is the whole point, so it grows quadratically: wave 1 is about 350
-// orcs, wave 10 about 8,000, wave 20 about 28,000. Health and speed scale too,
-// which is what eventually beats a fixed number of turrets.
+// The reference throws 100k+ orcs at you in its late waves, and difficulty comes
+// from bodies rather than from health bars. So the count grows hard and health
+// grows gently: wave 1 is about 1,100 orcs, wave 10 about 28,000, wave 16 about
+// 66,000, wave 20 about 100,000.
 export function composition(n) {
   const entries = [
-    { type: 0, count: Math.round(150 + n * 200 + n * n * 60), dur: 10 },
+    { type: 0, count: Math.round(300 + n * 600 + n * n * 220), dur: 11 },
   ];
-  if (n >= 2) entries.push({ type: 2, count: Math.round(40 + n * 30), dur: 7 });
-  if (n >= 3) entries.push({ type: 1, count: Math.round(4 + n * 4), dur: 9 });
+  if (n >= 2) entries.push({ type: 2, count: Math.round(120 + n * 130), dur: 8 });
+  if (n >= 3) entries.push({ type: 1, count: Math.round(10 + n * 14), dur: 10 });
   return entries;
 }
 
@@ -53,7 +54,8 @@ export class Waves {
     // Multiplicative, not linear. A fixed line of turrets has a fixed damage
     // throughput, so linear health means the defence always wins eventually.
     // Compounding health is what makes late waves genuinely threatening.
-    this.hpScale = Math.pow(1.17, this.wave - 1);
+    // Gentle: the bodies are the threat, not the health bars.
+    this.hpScale = Math.pow(1.09, this.wave - 1);
     this.speedScale = 1 + (this.wave - 1) * 0.035;
     this.active = composition(this.wave).map((e) => ({ ...e, acc: 0 }));
     this.state = 'running';

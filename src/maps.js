@@ -1,8 +1,9 @@
 // `built` is the turret limit for that map: open maps need more coverage than
 // corridor maps, which is the lever that keeps them fair.
 //
-// Authored maps, ordered by measured difficulty: tools/playtest.mjs plays each
-// one with the baseline bot, and `waves` is the target that map is balanced for.
+// Authored maps. `waves` is not a guess: tools/playtest.mjs plays every map with
+// the baseline bot until it dies, and each target is set below that measured
+// ceiling. The spread from 12 to 40 is the difficulty ramp.
 //
 // 24x14 characters, each character becomes a 4x4 block of sim
 // cells, so a one-character corridor is 4 units wide (roughly 8 orcs abreast).
@@ -17,7 +18,7 @@ export const MAPS = [
     // The reference's pillar field: a wide bowl broken by a staggered grid of
     // small plateaus, so the horde pours through in braided streams.
     name: 'THE SIEVE',
-    waves: 13,
+    waves: 20,
     rows: [
       '########################',
       '#..........S...........#',
@@ -37,7 +38,7 @@ export const MAPS = [
   },
   {
     name: 'THE FORK',
-    waves: 12,
+    waves: 30,
     built: 24,
     rows: [
       '########################',
@@ -60,7 +61,7 @@ export const MAPS = [
     // Each wall row opens on ONE side only, otherwise the left edge becomes a
     // straight shot and the serpentine does nothing.
     name: 'THE SNAKE',
-    waves: 14,
+    waves: 32,
     built: 24,
     rows: [
       '########################',
@@ -81,7 +82,7 @@ export const MAPS = [
   },
   {
     name: 'PILLARS',
-    waves: 13,
+    waves: 16,
     built: 38,
     rows: [
       '########################',
@@ -102,7 +103,7 @@ export const MAPS = [
   },
   {
     name: 'CHICANE',
-    waves: 12,
+    waves: 34,
     built: 44,
     rows: [
       '########################',
@@ -123,7 +124,7 @@ export const MAPS = [
   },
   {
     name: 'THE COMB',
-    waves: 12,
+    waves: 36,
     rows: [
       '########################',
       '#S.....................#',
@@ -143,7 +144,7 @@ export const MAPS = [
   },
   {
     name: 'THE FUNNEL',
-    waves: 12,
+    waves: 28,
     rows: [
       '########################',
       '#S.....................#',
@@ -163,7 +164,7 @@ export const MAPS = [
   },
   {
     name: 'TWIN GATES',
-    waves: 13,
+    waves: 24,
     rows: [
       '########################',
       '#.S..................S.#',
@@ -183,7 +184,7 @@ export const MAPS = [
   },
   {
     name: 'ISLANDS',
-    waves: 13,
+    waves: 26,
     rows: [
       '########################',
       '#..........S...........#',
@@ -203,7 +204,7 @@ export const MAPS = [
   },
   {
     name: 'THE BASIN',
-    waves: 14,
+    waves: 12,
     rows: [
       '########################',
       '#..........S...........#',
@@ -223,7 +224,7 @@ export const MAPS = [
   },
   {
     name: 'THE GAUNTLET',
-    waves: 14,
+    waves: 38,
     rows: [
       '########################',
       '#S.....................#',
@@ -243,7 +244,7 @@ export const MAPS = [
   },
   {
     name: 'THE SPIRAL',
-    waves: 13,
+    waves: 40,
     rows: [
       '########################',
       '#S.....................#',

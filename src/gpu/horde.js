@@ -24,6 +24,7 @@ import {
 import {
   MAX_ORCS, SPAWN_BATCH, MAX_TURRETS, MAX_BLASTS, GRID_W, GRID_H,
   DENS_W, DENS_H, DENS_SCALE, CORPSE_FADE, REST_DENSITY, PRESSURE, VISCOSITY, BOUNTY_FLOOR,
+  BUCKET_K, ORC_RADIUS, RESTITUTION,
 } from '../config.js';
 
 export class Horde {
@@ -49,17 +50,21 @@ export class Horde {
     const dat = instancedArray(MAX_ORCS, 'vec4');
     const att = instancedArray(MAX_ORCS, 'vec4');
     const dens = instancedArray(DENS_W * DENS_H, 'uint').toAtomic();
-    // Velocity sums per cell, fixed point with a +1000 bias per orc so the
-    // atomics stay unsigned. Averaging them gives the local stream direction.
-    const densVX = instancedArray(DENS_W * DENS_H, 'uint').toAtomic();
-    const densVY = instancedArray(DENS_W * DENS_H, 'uint').toAtomic();
-    const cnt = instancedArray(4, 'uint').toAtomic(); // kills, leaks, gold, hits
-    // Per-weapon hit budget, refilled every frame. Without it, area damage grows
-    // with crowd density and a bigger horde just feeds the turrets.
-    // One slot per weapon shape and per blast, so shells and abilities are
-    // rate limited too. Blasts live at offset MAX_TURRETS.
-    const budget = instancedArray(MAX_TURRETS + MAX_BLASTS, 'uint').toAtomic();
-    this._buffers = { pos, dat, att, dens, densVX, densVY, cnt, budget };
+    // Velocity sums per cell, fixed point with a +1000 bias per orc so the atomics
+    // stay unsigned. Averaging them gives the local stream direction. X and Y are
+    // interleaved in one buffer: WebGPU only guarantees 8 storage buffers a stage.
+    const densV = instancedArray(DENS_W * DENS_H * 2, 'uint').toAtomic();
+    // Spatial hash: up to BUCKET_K orc indices per cell, written as index+1 so
+    // zero means empty. Not atomic, only the counter is.
+    const bucket = instancedArray(DENS_W * DENS_H * BUCKET_K, 'uint');
+    // One buffer for every counter: kills, leaks, gold, spare, then a per-weapon
+    // hit budget refilled each frame (weapons first, blasts after them). Without
+    // that budget, area damage grows with crowd density and a bigger horde just
+    // feeds the turrets.
+    const CNT_BUDGET = 4;
+    const cnt = instancedArray(CNT_BUDGET + MAX_TURRETS + MAX_BLASTS, 'uint').toAtomic();
+    const budgetAt = (i) => i.add(int(CNT_BUDGET));
+    this._buffers = { pos, dat, att, dens, densV, bucket, cnt };
 
     // ---- uniforms ----------------------------------------------------------
     const u = {
@@ -151,8 +156,8 @@ export class Horde {
         }
       }
       const n0 = float(atomicLoad(dens.element(here))).toVar();
-      const sx = float(atomicLoad(densVX.element(here))).toVar();
-      const sy = float(atomicLoad(densVY.element(here))).toVar();
+      const sx = float(atomicLoad(densV.element(here.mul(2)))).toVar();
+      const sy = float(atomicLoad(densV.element(here.mul(2).add(1)))).toVar();
       const mean = vec2(
         sx.sub(n0.mul(1000)).div(max(n0, float(1))).div(100),
         sy.sub(n0.mul(1000)).div(max(n0, float(1))).div(100),
@@ -196,11 +201,46 @@ export class Horde {
         const cx = int(clamp(p.x.mul(DENS_SCALE), float(0), float(DENS_W - 1)));
         const cy = int(clamp(p.y.mul(DENS_SCALE), float(0), float(DENS_H - 1)));
         const cell = cy.mul(int(DENS_W)).add(cx).toVar();
-        atomicAdd(dens.element(cell), uint(1));
-        atomicAdd(densVX.element(cell), uint(P.z.mul(100).add(1000)));
-        atomicAdd(densVY.element(cell), uint(P.w.mul(100).add(1000)));
+        const slot = atomicAdd(dens.element(cell), uint(1)).toVar();
+        atomicAdd(densV.element(cell.mul(2)), uint(P.z.mul(100).add(1000)));
+        atomicAdd(densV.element(cell.mul(2).add(1)), uint(P.w.mul(100).add(1000)));
+        // first few orcs in a cell get a bucket slot for the pairwise pass
+        If(slot.lessThan(uint(BUCKET_K)), () => {
+          bucket.element(cell.mul(int(BUCKET_K)).add(int(slot))).assign(instanceIndex.add(uint(1)));
+        });
       });
     })().compute(MAX_ORCS);
+
+    // True circle-circle separation against the bucket contents: bounded work,
+    // no sorting, and it is what stops orcs from occupying each other. The
+    // density pressure term stays for the far field, where an exact answer does
+    // not matter and a gradient reads better.
+    const pairSeparation = (p, self) => {
+      const cx = int(clamp(p.x.mul(DENS_SCALE), float(1), float(DENS_W - 2))).toVar();
+      const cy = int(clamp(p.y.mul(DENS_SCALE), float(1), float(DENS_H - 2))).toVar();
+      const push = vec2(0).toVar();
+      const minDist = float(ORC_RADIUS * 2);
+      for (let oy = -1; oy <= 1; oy++) {
+        for (let ox = -1; ox <= 1; ox++) {
+          const cell = cy.add(int(oy)).mul(int(DENS_W)).add(cx.add(int(ox))).toVar();
+          for (let k = 0; k < BUCKET_K; k++) {
+            const raw = bucket.element(cell.mul(int(BUCKET_K)).add(int(k))).toVar();
+            If(raw.greaterThan(uint(0)), () => {
+              const other = raw.sub(uint(1)).toVar();
+              If(other.notEqual(self), () => {
+                const q = pos.element(other).xy.toVar();
+                const d = p.sub(q).toVar();
+                const dist = length(d).add(1e-4).toVar();
+                If(dist.lessThan(minDist), () => {
+                  push.addAssign(d.div(dist).mul(minDist.sub(dist)));
+                });
+              });
+            });
+          }
+        }
+      }
+      return push;
+    };
 
     // ---- pass: sim ---------------------------------------------------------
     this.simPass = Fn(() => {
@@ -247,6 +287,11 @@ export class Horde {
         });
         p.assign(vec2(nx, ny));
 
+        // Positional separation after integrating: resolving overlap directly is
+        // far more stable than trying to do it with forces, and it is what makes
+        // a packed crowd look packed instead of soupy.
+        p.addAssign(pairSeparation(p, instanceIndex).mul(float(RESTITUTION)));
+
         // ---- weapons. Two shapes only, both area based, which is what lets
         // damage be evaluated orc-side with no target-selection pass:
         //   kind 0  disc   centre A.xy, radius B.w
@@ -269,14 +314,14 @@ export class Horde {
           // Claim a slot in this weapon's budget. Whoever gets there first this
           // frame takes the damage; the rest of the crowd walks through.
           If(inside.greaterThan(0.5), () => {
-            const slot = atomicAdd(this._buffers.budget.element(i), uint(1));
+            const slot = atomicAdd(cnt.element(budgetAt(i)), uint(1));
             If(float(slot).lessThan(this.turretC.element(i).x), () => { dmg.addAssign(A.w); });
           });
         });
         Loop(u.blastCount, ({ i }) => {
           const B = this.blastArr.element(i).toVar();  // x, y, radius, dps
           If(length(p.sub(B.xy)).lessThan(B.z), () => {
-            const slot = atomicAdd(this._buffers.budget.element(i.add(int(MAX_TURRETS))), uint(1));
+            const slot = atomicAdd(cnt.element(budgetAt(i.add(int(MAX_TURRETS)))), uint(1));
             If(float(slot).lessThan(this.blastCaps.element(i).x), () => { dmg.addAssign(B.w); });
           });
         });
@@ -314,10 +359,10 @@ export class Horde {
     // ---- pass: clear density ----------------------------------------------
     this.clearPass = Fn(() => {
       atomicStore(dens.element(instanceIndex), uint(0));
-      atomicStore(densVX.element(instanceIndex), uint(0));
-      atomicStore(densVY.element(instanceIndex), uint(0));
+      atomicStore(densV.element(instanceIndex.mul(2)), uint(0));
+      atomicStore(densV.element(instanceIndex.mul(2).add(1)), uint(0));
       If(instanceIndex.lessThan(uint(MAX_TURRETS + MAX_BLASTS)), () => {
-        atomicStore(budget.element(instanceIndex), uint(0));
+        atomicStore(cnt.element(instanceIndex.add(uint(CNT_BUDGET))), uint(0));
       });
     })().compute(DENS_W * DENS_H);
 
@@ -481,6 +526,25 @@ export class Horde {
       this.density = new Uint32Array(buf);
       this._densityInFlight = false;
     }).catch(() => { this._densityInFlight = false; });
+  }
+
+  // How many orcs are within `r` world units of a point, from the async snapshot.
+  crowdAround(x, y, r) {
+    const d = this.density;
+    if (!d || !d.length) return 0;
+    const rc = Math.ceil(r * DENS_SCALE);
+    const cx = Math.round(x * DENS_SCALE), cy = Math.round(y * DENS_SCALE);
+    let sum = 0;
+    for (let oy = -rc; oy <= rc; oy++) {
+      const gy = cy + oy;
+      if (gy < 0 || gy >= DENS_H) continue;
+      for (let ox = -rc; ox <= rc; ox++) {
+        const gx = cx + ox;
+        if (gx < 0 || gx >= DENS_W) continue;
+        sum += d[gy * DENS_W + gx];
+      }
+    }
+    return sum;
   }
 
   // Densest density cell within range of a point, in world units. Mortars use

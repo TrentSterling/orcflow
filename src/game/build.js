@@ -8,7 +8,7 @@
 //   bounce  -> one segment per reflection leg, zig-zagging off rock
 //   mortar  -> blasts, which are discs with a short life
 
-import { CELL_SCALE, RAMPART, TURRET_SIZE, BLAST_LIFE, MAX_BLASTS, MAX_TURRETS, MAX_BUILT, NO_BUILD_RADIUS, ABILITIES, SELL_REFUND } from '../config.js';
+import { CELL_SCALE, RAMPART, RAMPART_HP, CHEW_DPS, TURRET_SIZE, BLAST_LIFE, MAX_BLASTS, MAX_TURRETS, MAX_BUILT, NO_BUILD_RADIUS, ABILITIES, SELL_REFUND } from '../config.js';
 
 let nextId = 1;
 
@@ -20,8 +20,11 @@ const shortestTurn = (from, to) => {
 };
 
 export class Build {
-  constructor(field, ground, horde, maxBuilt = MAX_BUILT) {
+  constructor(field, ground, horde, onFieldChange = () => {}, maxBuilt = MAX_BUILT) {
     this.maxBuilt = maxBuilt;
+    this.onFieldChange = onFieldChange;
+    this.ramparts = [];
+    this.chewTimer = 0;
     this.field = field;
     this.ground = ground;
     this.horde = horde;
@@ -33,6 +36,7 @@ export class Build {
   }
 
   reset() {
+    this.ramparts.length = 0;
     this.turrets.length = 0;
     this.blasts.length = 0;
     this.segments.length = 0;
@@ -123,6 +127,10 @@ export class Build {
 
   atCap() { return this.turrets.length >= this.maxBuilt; }
 
+  builtOf(id) { return this.turrets.reduce((n, t) => n + (t.buildId === id ? 1 : 0), 0); }
+  limitOf(def) { return def.limit ?? 99; }
+  atTypeCap(def) { return def.kind === 'turret' && this.builtOf(def.id) >= this.limitOf(def); }
+
   nearPortal(c) {
     return this.field.spawns.some((s) => Math.hypot(s.x - c.x, s.y - c.y) < NO_BUILD_RADIUS);
   }
@@ -135,7 +143,7 @@ export class Build {
       if (!this.field.canBuildCells(gx, gy, RAMPART)) return false;
       return !this.turrets.some((t) => Math.abs(t.x - c.x) < 2 && Math.abs(t.y - c.y) < 2);
     }
-    if (this.atCap()) return false;
+    if (this.atCap() || this.atTypeCap(build)) return false;
     const { gx, gy } = this.latticeAt(world, TURRET_SIZE);
     if (!this.field.isPlatform(gx, gy, TURRET_SIZE)) return false;   // turrets sit on rock
     return !this.turrets.some((t) => Math.hypot(t.x - c.x, t.y - c.y) < 2.4);
@@ -147,6 +155,7 @@ export class Build {
     if (build.kind !== 'wall') {
       const { gx, gy } = this.latticeAt(world, TURRET_SIZE);
       if (!this.field.isPlatform(gx, gy, TURRET_SIZE)) return 'turrets are built on the rock';
+      if (this.atTypeCap(build)) return `all ${this.limitOf(build)} ${build.name} slots used`;
       if (this.atCap()) return 'out of turret slots';
     }
     if (!this.valid(world, build)) return 'blocked';
@@ -161,6 +170,7 @@ export class Build {
         this.field.bake();
         return 'that would seal the path';
       }
+      this.ramparts.push({ gx, gy, hp: RAMPART_HP, maxHp: RAMPART_HP });
       this.ground.rebuild();
       this.counts[build.id] = (this.counts[build.id] ?? 0) + 1;
       return null;
@@ -169,6 +179,7 @@ export class Build {
     this.turrets.push({
       id: nextId++,
       level: 1,
+      buildId: build.id,
       baseCost: build.cost,
       spent: this.costOf(build),
       x: c.x, y: c.y,
@@ -209,8 +220,35 @@ export class Build {
     return legs;
   }
 
+  // Orcs pressed against a rampart chew it down. The crowd count comes straight
+  // from the density snapshot the GPU already hands back, so this costs nothing.
+  #chewRamparts(dt) {
+    if (!this.ramparts.length) return;
+    let broke = false;
+    for (let i = this.ramparts.length - 1; i >= 0; i--) {
+      const r = this.ramparts[i];
+      const crowd = this.horde.crowdAround(r.gx + RAMPART / 2, r.gy + RAMPART / 2, 2.5);
+      if (crowd <= 0) continue;
+      r.hp -= crowd * CHEW_DPS * dt;
+      if (r.hp > 0) continue;
+      this.field.setCells(r.gx, r.gy, RAMPART, false);
+      this.ramparts.splice(i, 1);
+      broke = true;
+    }
+    if (broke) {
+      this.field.bake();
+      this.ground.rebuild();
+      this.onFieldChange();
+    }
+  }
+
   update(dt, time) {
     for (const id in this.cooldowns) this.cooldowns[id] = Math.max(0, this.cooldowns[id] - dt);
+    this.chewTimer -= dt;
+    if (this.chewTimer <= 0) {
+      this.#chewRamparts(0.25);
+      this.chewTimer = 0.25;
+    }
     const weapons = [];
     this.segments.length = 0;
 

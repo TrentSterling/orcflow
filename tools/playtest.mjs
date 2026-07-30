@@ -7,6 +7,7 @@
 // table. This is the difference between "I think map 3 is too hard" and knowing.
 
 import { spawn } from 'node:child_process';
+import { MAPS } from '../src/maps.js';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -120,8 +121,10 @@ async function playMap(map) {
 
 await waitForBrowser();
 
+const ONLY = process.argv[5] ? process.argv[5].split(',').map(Number) : null;
+const maps = ONLY ?? MAPS.map((_, i) => i);
 const results = [];
-for (let map = 0; map < 4; map++) {
+for (const map of maps) {
   process.stdout.write(`playing map ${map} ... `);
   const r = await playMap(map);
   console.log(`${r.verdict}  wave ${r.wave ?? '?'}/${r.target ?? WAVES}  hp ${Math.max(0, Math.ceil(r.hp ?? 0))}  kills ${(r.kills ?? 0).toLocaleString()}  turrets ${r.turrets ?? 0}  ${r.wall ?? ''}${r.detail ? '  ' + r.detail : ''}`);

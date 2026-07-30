@@ -6,7 +6,9 @@ export const CELL_SCALE = 4;             // authored char -> 4x4 sim cells
 export const GRID_W = AUTHOR_W * CELL_SCALE;   // 96
 export const GRID_H = AUTHOR_H * CELL_SCALE;   // 56
 
-export const DENS_SCALE = 2;             // density cells per world unit
+// Finer grid than before: cells about one orc wide, so it doubles as a spatial
+// hash for exact pairwise separation instead of only a density field.
+export const DENS_SCALE = 4;
 export const DENS_W = GRID_W * DENS_SCALE;
 export const DENS_H = GRID_H * DENS_SCALE;
 
@@ -45,7 +47,13 @@ export const SPRITE_PX = 16;             // orc sprite size in atlas
 //             horde packs tight until it has to spread, then pours sideways
 //   VISCOSITY blends each orc toward the local average velocity, which is what
 //             turns a mob into laminar streams that split and rejoin
-export const REST_DENSITY = 3.0;         // orcs per density cell before pressure builds
+export const REST_DENSITY = 1.6;         // orcs per density cell before pressure builds
+
+// Neighbours stored per cell for the pairwise pass. Four is enough at this cell
+// size, and it keeps the work per orc bounded at 9 cells x 4 = 36 candidates.
+export const BUCKET_K = 4;
+export const ORC_RADIUS = 0.22;          // half a grunt, for circle overlap
+export const RESTITUTION = 0.55;         // how much of an overlap is resolved per step
 export const PRESSURE = 5.5;
 export const VISCOSITY = 3.0;
 
@@ -61,12 +69,24 @@ export const ORC_TYPES = [
 // can be narrowed to 2 instead of only being sealed.
 export const RAMPART = 2;
 
+// Ramparts are destructible. The reference game has no player walls at all: the
+// path is fixed and you defend it. Letting the player reroute the horde is more
+// interesting than that, but only if a wall is a delaying action you have to
+// defend rather than a permanent solve, so the orcs chew through it.
+export const RAMPART_HP = 1100;
+export const CHEW_DPS = 1.1;             // damage per orc pressed against it, per second
+
 // Turret footprint in sim cells, snapped to its own lattice like ramparts.
 export const TURRET_SIZE = 2;
 
-// Not a design gate any more, just the technical ceiling: every weapon shape has
-// to fit the uniform array the shader loops over, and a bouncing beam spends one
-// slot per leg. Space and gold are what actually limit you.
+// Per-type limits, the way the reference does it (its hotbar reads 2/15, 8/10).
+// A flat total was an arbitrary gate; a limit per weapon is a real decision about
+// composition, and it is the only thing that can bound total throughput in a
+// design where area damage scales with crowd density. Growth inside a run comes
+// from upgrades, not from more turrets.
+//
+// MAX_BUILT is now only the technical ceiling: every weapon shape has to fit the
+// uniform array the shader loops over, and a bouncing beam spends a slot per leg.
 export const MAX_BUILT = 110;
 
 // Nothing may be built within this radius of a portal. Camping the spawn made
@@ -92,10 +112,10 @@ export const BUILDS = [
 // what makes the choice about *shape* (a disc, a line, a bouncing line, a shell)
 // instead of one weapon quietly doing all the work: the beam used to be worth
 // nine blades.
-  { key: '2', id: 'blades', name: 'BLADES',  cost: 60,  kind: 'turret', type: 0, range: 5.5,  dps: 95,  hitsPerSec: 300 },
-  { key: '3', id: 'beam',   name: 'BEAM',    cost: 170, kind: 'turret', type: 1, range: 26.0, dps: 165, width: 1.4, dwell: 1.5, hitsPerSec: 240 },
-  { key: '4', id: 'bounce', name: 'BOUNCE',  cost: 210, kind: 'turret', type: 2, range: 40.0, dps: 200, width: 1.0, bounces: 4, sweep: 0.5, hitsPerSec: 230 },
-  { key: '5', id: 'mortar', name: 'MORTAR',  cost: 240, kind: 'turret', type: 3, range: 30.0, dps: 900, blast: 4.6, cooldown: 2.4, hitsPerSec: 300 },
+  { key: '2', id: 'blades', name: 'BLADES',  cost: 60,  kind: 'turret', type: 0, range: 5.5,  dps: 95,  hitsPerSec: 300, limit: 10 },
+  { key: '3', id: 'beam',   name: 'BEAM',    cost: 170, kind: 'turret', type: 1, range: 26.0, dps: 165, width: 1.4, dwell: 1.5, hitsPerSec: 240, limit: 5 },
+  { key: '4', id: 'bounce', name: 'BOUNCE',  cost: 210, kind: 'turret', type: 2, range: 40.0, dps: 200, width: 1.0, bounces: 4, sweep: 0.5, hitsPerSec: 230, limit: 5 },
+  { key: '5', id: 'mortar', name: 'MORTAR',  cost: 240, kind: 'turret', type: 3, range: 30.0, dps: 900, blast: 4.6, cooldown: 2.4, hitsPerSec: 300, limit: 5 },
 ];
 
 // Active abilities, the thing the original uses to survive density spikes.

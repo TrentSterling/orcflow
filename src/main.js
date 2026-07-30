@@ -94,7 +94,7 @@ await horde.init();
 scene.add(horde.mesh);
 
 const effects = new Effects(scene);
-const build = new Build(field, ground, horde);
+const build = new Build(field, ground, horde, () => refreshField());
 const waves = new Waves(field, horde);
 
 // A rebake rewrites field.flow in place, so the GPU just needs the upload flag.
@@ -620,6 +620,7 @@ function step(now) {
     spawned: horde.stats.spawned, cap: MAX_ORCS, selected: state.selected,
     recycling: horde.stats.recycling === true,
     costs: BUILDS.map((b) => build.costOf(b)),
+    built: Object.fromEntries(BUILDS.map((b) => [b.id, build.builtOf(b.id)])),
     towers: build.turrets.length, towerCap: build.maxBuilt,
     cooldowns: ABILITIES.map((a) => build.cooldowns[a.id] ?? 0),
   });
