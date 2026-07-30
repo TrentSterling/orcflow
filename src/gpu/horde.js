@@ -68,7 +68,7 @@ export class Horde {
     // hit budget refilled each frame (weapons first, blasts after them). Without
     // that budget, area damage grows with crowd density and a bigger horde just
     // feeds the turrets.
-    const CNT_BUDGET = 4;
+    const CNT_BUDGET = 6;   // 0-3 monotonic, 4 stuck gauge, 5 spare
     const cnt = instancedArray(CNT_BUDGET + MAX_TURRETS + MAX_BLASTS, 'uint').toAtomic();
     const budgetAt = (i) => i.add(int(CNT_BUDGET));
     this._buffers = { pos, dat, att, dens, densV, bucket, bullets, cnt };
@@ -305,9 +305,12 @@ export class Horde {
         p.assign(vec2(nx, ny));
 
         // Positional separation after integrating: resolving overlap directly is
-        // far more stable than trying to do it with forces, and it is what makes
-        // a packed crowd look packed instead of soupy.
-        p.addAssign(pairSeparation(p, instanceIndex).mul(float(RESTITUTION)));
+        // far more stable than doing it with forces, and it is what makes a packed
+        // crowd look packed instead of soupy. It must not shove anyone into rock,
+        // though: an orc pushed inside a platform ends up stranded.
+        const sep = pairSeparation(p, instanceIndex).mul(float(RESTITUTION)).toVar();
+        const sepTo = p.add(sep).toVar();
+        If(isRock(sepTo).not(), () => { p.assign(sepTo); });
 
         // ---- weapons. Two shapes only, both area based, which is what lets
         // damage be evaluated orc-side with no target-selection pass:
@@ -316,6 +319,7 @@ export class Horde {
         // A bouncing beam is just several segments in a row, so the shader
         // needs no idea that reflection exists.
         const dmg = float(0).toVar();
+        const touched = float(0).toVar();
         Loop(u.turretCount, ({ i }) => {
           const A = this.turretA.element(i).toVar();   // x0, y0, kind, dps
           const B = this.turretB.element(i).toVar();   // x1, y1, halfWidth, radius
@@ -328,9 +332,12 @@ export class Horde {
             const close = A.xy.add(ab.mul(t)).toVar();
             If(length(p.sub(close)).lessThan(B.z), () => { inside.assign(1); });
           });
-          // Claim a slot in this weapon's budget. Whoever gets there first this
-          // frame takes the damage; the rest of the crowd walks through.
+          // Everything the shape touches flashes; only what fits the budget takes
+          // damage. Tying the flash to the damage meant a beam over a thousand orcs
+          // lit up the four it happened to hit that frame, which read as the beam
+          // doing nothing at all.
           If(inside.greaterThan(0.5), () => {
+            touched.assign(1);
             const slot = atomicAdd(cnt.element(budgetAt(i)), uint(1));
             If(float(slot).lessThan(this.turretC.element(i).x), () => { dmg.addAssign(A.w); });
           });
@@ -338,14 +345,13 @@ export class Horde {
         Loop(u.blastCount, ({ i }) => {
           const B = this.blastArr.element(i).toVar();  // x, y, radius, dps
           If(length(p.sub(B.xy)).lessThan(B.z), () => {
+            touched.assign(1);
             const slot = atomicAdd(cnt.element(budgetAt(i.add(int(MAX_TURRETS)))), uint(1));
             If(float(slot).lessThan(this.blastCaps.element(i).x), () => { dmg.addAssign(B.w); });
           });
         });
-        If(dmg.greaterThan(0), () => {
-          hp.subAssign(dmg.mul(u.dt));
-          A.z.assign(u.time);                         // drives the hit flash
-        });
+        If(dmg.greaterThan(0), () => { hp.subAssign(dmg.mul(u.dt)); });
+        If(touched.greaterThan(0.5), () => { A.z.assign(u.time); });   // flash
 
         // ---- reached the base: counts as a leak, not a kill
         If(length(p.sub(u.basePos)).lessThan(1.7), () => {
@@ -353,6 +359,10 @@ export class Horde {
           d.w.assign(u.time);
           atomicAdd(cnt.element(1), uint(1));
         });
+
+        // Instantaneous gauge of how many living orcs are barely moving. Cleared
+        // every frame, so it measures a symptom rather than accumulating.
+        If(length(v).lessThan(float(0.25)), () => { atomicAdd(cnt.element(4), uint(1)); });
 
         d.x.assign(max(hp, 0));
         att.element(instanceIndex).assign(A);
@@ -460,6 +470,7 @@ export class Horde {
       If(instanceIndex.lessThan(uint(MAX_TURRETS + MAX_BLASTS)), () => {
         atomicStore(cnt.element(instanceIndex.add(uint(CNT_BUDGET))), uint(0));
       });
+      If(instanceIndex.equal(uint(0)), () => { atomicStore(cnt.element(4), uint(0)); });
     })().compute(DENS_W * DENS_H);
 
     // ---- render ------------------------------------------------------------
@@ -665,6 +676,7 @@ export class Horde {
       this.stats.leaks = c[1];
       this.stats.gold = c[2];
       this.stats.hits = c[3];
+      this.stats.stuck = c[4];
       this.pendingGold += dGold;
       this.pendingLeaks += dLeaks;
       // Orcs overwritten by the spawn ring never report a death, so the derived

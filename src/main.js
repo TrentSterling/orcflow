@@ -573,7 +573,7 @@ globalThis.__orcflow = () => ({
   kills: horde.stats.kills, leaks: horde.stats.leaks, gold: state.gold,
   turrets: build.turrets.length, blasts: build.blasts.length,
   muzzles: horde._muzzleCount ?? 0, bulletCursor: horde._bulletCursor ?? 0,
-  bulletHits: horde.stats.hits ?? 0,
+  bulletHits: horde.stats.hits ?? 0, stuck: horde.stats.stuck ?? -1,
   hp: state.hp, over: state.over, won: state.won, sandbox: state.sandbox,
   wave: waves.wave, waveState: waves.state, target: TARGET_WAVES, speed: simSpeed,
   queued: horde._spawnQueue.length, lastError: globalThis.__orcflowError ?? null,

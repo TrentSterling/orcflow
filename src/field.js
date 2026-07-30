@@ -261,6 +261,7 @@ export class Field {
   #bakeFlow() {
     const { w, h, cost, walls, flow } = this;
     const hasDir = new Uint8Array(w * h);
+    const start = this.idx(this.base.x | 0, this.base.y | 0);
     let maxCost = 1;
     for (let i = 0; i < cost.length; i++) {
       if (Number.isFinite(cost[i]) && cost[i] > maxCost) maxCost = cost[i];
@@ -283,6 +284,14 @@ export class Field {
           if (c < best) { best = c; bx = dx; by = dy; }
         }
 
+        // An open cell with no downhill neighbour has nowhere to send anyone: the
+        // base itself, or a pocket the base cannot reach. Anything standing there
+        // would sit still forever, so fall back to heading at the base.
+        if (!walls[i] && !bx && !by && i !== start) {
+          const dx = this.base.x - (x + 0.5), dy = this.base.y - (y + 0.5);
+          const m = Math.hypot(dx, dy) || 1;
+          bx = dx / m; by = dy / m;
+        }
         const len = Math.hypot(bx, by) || 1;
         hasDir[i] = (bx || by) ? 1 : 0;
         flow[o] = Math.round((bx / len * 0.5 + 0.5) * 255);
