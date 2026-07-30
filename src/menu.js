@@ -114,7 +114,7 @@ export class Menu {
 
     const capRow = el('label', 'srow');
     const capSel = el('select');
-    for (const n of [50000, 100000, 250000, 500000]) {
+    for (const n of [100000, 250000, 500000, 1000000, 2000000]) {
       const o = el('option', null, n.toLocaleString());
       o.value = String(n);
       if (save.settings.orcCap === n) o.selected = true;

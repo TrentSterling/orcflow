@@ -27,13 +27,16 @@ function savedOrcCap() {
   } catch { return null; }
 }
 export const MAX_ORCS = Math.max(2048, Math.min(2000000,
-  Number(QUERY.get('orcs')) || savedOrcCap() || 250000));
+  Number(QUERY.get('orcs')) || savedOrcCap() || 500000));
 export const SPAWN_BATCH = 2048;         // hard cap on orcs spawned in one frame
 // Each bouncing beam spends one slot per leg, so this is a shape budget rather
 // than a turret budget.
 export const MAX_TURRETS = 256;
 export const MAX_BLASTS = 48;
-export const CORPSE_FADE = 7.0;          // seconds a corpse lingers before its slot is reusable
+// Corpses ARE the blood system, so they linger. A slot only comes back when the
+// spawn ring wraps around to it anyway, and at half a million slots that is a
+// very long time.
+export const CORPSE_FADE = 80.0;
 
 export const TILE_PX = 16;               // ground texture pixels per cell
 export const SPRITE_PX = 16;             // orc sprite size in atlas
@@ -90,9 +93,9 @@ export const BUILDS = [
 // instead of one weapon quietly doing all the work: the beam used to be worth
 // nine blades.
   { key: '2', id: 'blades', name: 'BLADES',  cost: 60,  kind: 'turret', type: 0, range: 5.5,  dps: 95,  hitsPerSec: 300 },
-  { key: '3', id: 'beam',   name: 'BEAM',    cost: 170, kind: 'turret', type: 1, range: 26.0, dps: 430, width: 1.0, dwell: 1.5, hitsPerSec: 150 },
-  { key: '4', id: 'bounce', name: 'BOUNCE',  cost: 210, kind: 'turret', type: 2, range: 40.0, dps: 260, width: 0.8, bounces: 4, sweep: 0.5, hitsPerSec: 230 },
-  { key: '5', id: 'mortar', name: 'MORTAR',  cost: 240, kind: 'turret', type: 3, range: 30.0, dps: 900, blast: 4.2, cooldown: 2.4, hitsPerSec: 520 },
+  { key: '3', id: 'beam',   name: 'BEAM',    cost: 170, kind: 'turret', type: 1, range: 26.0, dps: 165, width: 1.4, dwell: 1.5, hitsPerSec: 240 },
+  { key: '4', id: 'bounce', name: 'BOUNCE',  cost: 210, kind: 'turret', type: 2, range: 40.0, dps: 200, width: 1.0, bounces: 4, sweep: 0.5, hitsPerSec: 230 },
+  { key: '5', id: 'mortar', name: 'MORTAR',  cost: 240, kind: 'turret', type: 3, range: 30.0, dps: 900, blast: 4.6, cooldown: 2.4, hitsPerSec: 300 },
 ];
 
 // Active abilities, the thing the original uses to survive density spikes.

@@ -528,26 +528,17 @@ function dropRamparts(n) {
 if (PARAMS.get('spawn')) flood(Number(PARAMS.get('spawn')));
 if (PARAMS.get('wave') === '1') waves.call();   // start the real game loop headlessly
 
-// Pick open cells a set distance along the path and drop a turret on each.
+// Drop one of each turret along the route, using the same platform list the bot
+// uses: turrets go on rock, so the old open-ground list placed nothing.
 function autobuild() {
-  const wanted = [
-    { d: 0.2, build: BUILDS[1] },    // blades
-    { d: 0.4, build: BUILDS[2] },    // beam
-    { d: 0.6, build: BUILDS[3] },    // bounce
-    { d: 0.8, build: BUILDS[4] },    // mortar
-  ];
-  const cells = [];
-  for (let y = 1; y < GRID_H - 1; y += 2) {
-    for (let x = 1; x < GRID_W - 1; x += 2) {
-      const c = field.cost[field.idx(x, y)];
-      if (Number.isFinite(c) && !field.isWall(x, y)) cells.push({ x: x + 0.5, y: y + 0.5, c });
-    }
-  }
-  cells.sort((a, b) => a.c - b.c);
-  for (const w of wanted) {
-    const start = Math.floor(cells.length * w.d);
-    for (let i = start; i < cells.length; i++) {
-      if (!build.place(cells[i], w.build)) break;
+  const cells = apCells();
+  for (const [frac, def] of [[0.15, BUILDS[1]], [0.35, BUILDS[2]], [0.55, BUILDS[3]], [0.75, BUILDS[4]]]) {
+    for (let i = Math.floor(cells.length * frac); i < cells.length; i++) {
+      const price = build.costOf(def);
+      if (state.gold < price) break;
+      if (build.place(cells[i], def)) continue;
+      state.gold -= price;
+      break;
     }
   }
   refreshField();

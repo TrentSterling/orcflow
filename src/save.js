@@ -12,7 +12,7 @@ const DEFAULTS = {
     sfx: 0.7,
     music: 0.35,
     showBench: false,
-    orcCap: 250000,
+    orcCap: 500000,
     speed: 1,
   },
 };

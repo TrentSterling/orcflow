@@ -338,10 +338,21 @@ export class Horde {
 
     const aliveF = step(0.001, datA.x);
     const age = u.time.sub(datA.w);
-    const fade = clamp(float(1).sub(age.div(CORPSE_FADE)), 0, 1);
+    // Hold the splat at full strength almost all its life and fade only in the
+    // last fifth, so a battlefield stays covered instead of dissolving.
+    const fade = clamp(float(CORPSE_FADE).sub(age).div(float(CORPSE_FADE * 0.2)), 0, 1);
+    // Fresh blood dries to dark maroon in a couple of seconds, then stays put.
+    const wet = clamp(float(1).sub(age.div(2.5)), 0, 1);
+    // The instant of death is white hot, which is what makes a beam sweeping a
+    // crowd read as shredding rather than as a light show.
+    const spark = clamp(float(1).sub(age.mul(9)), 0, 1).mul(float(1).sub(aliveF));
     const vis = mix(fade, float(1), aliveF);
     const live = step(0.001, vis);                    // empty slots collapse to zero area
-    const size = attA.w.mul(mix(float(1.3), float(1), aliveF)).mul(live);
+    const hitPop = clamp(float(1).sub(u.time.sub(attA.z).mul(5)), 0, 1).mul(aliveF);
+    const size = attA.w
+      .mul(mix(float(1.5), float(1), aliveF))
+      .mul(float(1).add(hitPop.mul(0.4)).add(spark.mul(0.8)))
+      .mul(live);
 
     const mat = new THREE.MeshBasicNodeMaterial();
     mat.positionNode = vec3(
@@ -351,9 +362,11 @@ export class Horde {
 
     const tile = mix(float(3), datA.y, aliveF);       // tile 3 of the atlas is gore
     const tex = texture(atlasTexture, vec2(uv().x.add(tile).div(4), uv().y));
-    const dry = mix(vec3(0.30, 0.05, 0.05), vec3(1), vis);
-    const flash = clamp(float(1).sub(u.time.sub(attA.z).mul(7)), 0, 1).mul(aliveF);
-    mat.colorNode = tex.rgb.mul(mix(dry, vec3(1), aliveF)).add(vec3(flash.mul(0.9), flash.mul(0.15), 0));
+    const dry = mix(vec3(0.34, 0.07, 0.06), vec3(1), wet);
+    const flash = hitPop;
+    mat.colorNode = tex.rgb.mul(mix(dry, vec3(1), aliveF))
+      .add(vec3(flash.mul(1.1), flash.mul(0.25), flash.mul(0.05)))
+      .add(vec3(spark.mul(1.6), spark.mul(1.3), spark.mul(0.8)));
     mat.opacityNode = tex.a;
     mat.transparent = false;
     mat.alphaTest = 0.5;                              // cutout keeps depth sorting honest

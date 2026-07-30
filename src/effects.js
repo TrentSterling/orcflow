@@ -26,18 +26,24 @@ export class Effects {
       return m;
     });
 
+    // Additive layers stack: with dozens of turrets firing, full-strength quads
+    // blow the screen out, so every layer gets an opacity budget.
     this.beamMat = new THREE.MeshBasicNodeMaterial({
-      map: this.beamTex, transparent: true, depthWrite: false,
+      map: this.beamTex, transparent: true, depthWrite: false, opacity: 0.42,
+      blending: THREE.AdditiveBlending,
+    });
+    this.coreMat = new THREE.MeshBasicNodeMaterial({
+      map: this.beamTex, transparent: true, depthWrite: false, opacity: 0.8,
       blending: THREE.AdditiveBlending,
     });
     this.glowMat = new THREE.MeshBasicNodeMaterial({
-      map: this.glowTex, transparent: true, depthWrite: false,
+      map: this.glowTex, transparent: true, depthWrite: false, opacity: 0.5,
       blending: THREE.AdditiveBlending,
     });
     // Dim wash drawn at the true damage diameter, so the blade turret's kill
     // zone is the thing you see rather than a small glow inside a big radius.
     this.zoneMat = new THREE.MeshBasicNodeMaterial({
-      map: this.glowTex, transparent: true, depthWrite: false, opacity: 0.3,
+      map: this.glowTex, transparent: true, depthWrite: false, opacity: 0.13,
       blending: THREE.AdditiveBlending,
     });
 
@@ -135,7 +141,7 @@ export class Effects {
         const pulse = 0.55 + 0.45 * Math.abs(Math.sin(time * 22 + t.x));
         const flash = this.#at(this.glowPool, gi, this.glowMat);
         flash.position.set(t.x, t.y, 0.55);
-        const s = t.range * 0.9 * pulse;
+        const s = t.range * 0.55 * pulse;
         flash.scale.set(s, s, 1);
         gi++;
       }
@@ -146,15 +152,24 @@ export class Effects {
       const len = Math.hypot(dx, dy);
       if (len < 0.02) continue;
       const hot = s.hot ?? 1;
-      const beam = this.#at(this.beamPool, bi, this.beamMat);
-      beam.position.set(s.x0 + dx / 2, s.y0 + dy / 2, 0.6);
-      beam.scale.set(len, Math.max(1.0, s.width * 4.2 * hot), 1);
-      beam.rotation.z = Math.atan2(dy, dx);
+      const ang = Math.atan2(dy, dx);
+      // wide soft body plus a thin hot core, so a beam looks like it is cutting
+      const body = this.#at(this.beamPool, bi, this.beamMat);
+      body.position.set(s.x0 + dx / 2, s.y0 + dy / 2, 0.6);
+      body.material = this.beamMat;
+      body.scale.set(len, Math.max(1.2, s.width * 3.6 * hot), 1);
+      body.rotation.z = ang;
+      bi++;
+      const core = this.#at(this.beamPool, bi, this.coreMat);
+      core.material = this.coreMat;
+      core.position.set(s.x0 + dx / 2, s.y0 + dy / 2, 0.62);
+      core.scale.set(len, Math.max(0.5, s.width * 1.5) * (0.85 + Math.sin(time * 30 + s.x0) * 0.15), 1);
+      core.rotation.z = ang;
       bi++;
       // bloom where the leg lands, so a reflection reads as a hit
       const impact = this.#at(this.glowPool, gi, this.glowMat);
       impact.position.set(s.x1, s.y1, 0.66);
-      const hs = (2.4 + Math.sin(time * 26 + s.x0) * 0.5) * hot;
+      const hs = (1.5 + Math.sin(time * 26 + s.x0) * 0.3) * hot;
       impact.scale.set(hs, hs, 1);
       gi++;
     }
