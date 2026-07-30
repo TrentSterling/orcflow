@@ -18,7 +18,16 @@ export const PARAMS = QUERY;
 // millisecond), so the default cap is generous. Past the cap the spawn ring
 // wraps and overwrites the oldest slots, so the headcount plateaus instead of
 // climbing: the HUD flags that as recycling.
-export const MAX_ORCS = Math.max(2048, Math.min(2000000, Number(QUERY.get('orcs')) || 250000));
+// Capacity comes from the saved setting unless a URL param overrides it. Read
+// directly rather than importing save.js: config must stay importable by node.
+function savedOrcCap() {
+  try {
+    if (typeof localStorage === 'undefined') return null;
+    return JSON.parse(localStorage.getItem('orcflow.save.v1'))?.settings?.orcCap ?? null;
+  } catch { return null; }
+}
+export const MAX_ORCS = Math.max(2048, Math.min(2000000,
+  Number(QUERY.get('orcs')) || savedOrcCap() || 250000));
 export const SPAWN_BATCH = 2048;         // hard cap on orcs spawned in one frame
 // Each bouncing beam spends one slot per leg, so this is a shape budget rather
 // than a turret budget.
@@ -42,6 +51,11 @@ export const ORC_TYPES = [
 // can be narrowed to 2 instead of only being sealed.
 export const RAMPART = 2;
 
+// Hard cap on placed turrets. This, not gold, is what makes placement a real
+// decision: without it the baseline bot carpeted the map with 70 turrets and
+// took zero damage across 20 waves.
+export const MAX_BUILT = 24;
+
 export const BASE_HP = 90;
 export const START_GOLD = 320;
 
@@ -51,10 +65,10 @@ export const START_GOLD = 320;
 //   2 bounce  zig-zag beam that reflects off rock, one segment per leg
 //   3 mortar  lobs blasts at the thickest crowd
 export const BUILDS = [
-  { key: '1', id: 'wall',   name: 'RAMPART', cost: 8,   kind: 'wall', size: RAMPART },
-  { key: '2', id: 'blades', name: 'BLADES',  cost: 60,  kind: 'turret', type: 0, range: 5.5,  dps: 95 },
-  { key: '3', id: 'beam',   name: 'BEAM',    cost: 180, kind: 'turret', type: 1, range: 26.0, dps: 520, width: 1.0, dwell: 1.5 },
-  { key: '4', id: 'bounce', name: 'BOUNCE',  cost: 220, kind: 'turret', type: 2, range: 74.0, dps: 300, width: 0.8, bounces: 5, sweep: 0.5 },
+  { key: '1', id: 'wall',   name: 'RAMPART', cost: 8,   kind: 'wall', size: RAMPART, escalate: 1.04 },
+  { key: '2', id: 'blades', name: 'BLADES',  cost: 60,  kind: 'turret', type: 0, range: 5.5,  dps: 95,  hitsPerSec: 130 },
+  { key: '3', id: 'beam',   name: 'BEAM',    cost: 180, kind: 'turret', type: 1, range: 26.0, dps: 520, width: 1.0, dwell: 1.5, hitsPerSec: 220 },
+  { key: '4', id: 'bounce', name: 'BOUNCE',  cost: 220, kind: 'turret', type: 2, range: 74.0, dps: 300, width: 0.8, bounces: 5, sweep: 0.5, hitsPerSec: 190 },
   { key: '5', id: 'mortar', name: 'MORTAR',  cost: 240, kind: 'turret', type: 3, range: 30.0, dps: 900, blast: 4.2, cooldown: 2.4 },
 ];
 

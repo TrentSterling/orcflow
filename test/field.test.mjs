@@ -93,7 +93,8 @@ test('walling the base off makes the portal unreachable, and undo restores it', 
 });
 
 test('a half-block rampart narrows a corridor, a full block would seal it', () => {
-  const f = new Field(MAPS[0]);          // THE SNAKE: corridors are one authored block wide
+  // by name, not index: maps are ordered by measured difficulty and that order moves
+  const f = new Field(MAPS.find((m) => m.name === 'THE SNAKE'));
   const gx = 20, gy = f.spawns[0].y - 2; // inside the top corridor, on the rampart lattice
 
   assert.ok(f.canBuildCells(gx, gy, RAMPART), 'corridor should accept a rampart');
@@ -118,4 +119,11 @@ test('cost rises as you walk away from the base', () => {
   assert.equal(f.cost[b], 0);
   const far = f.idx(f.spawns[0].x | 0, f.spawns[0].y | 0);
   assert.ok(f.cost[far] > 5, 'portal should be a real distance from the base');
+});
+
+test('every map declares a wave target and a turret limit', () => {
+  for (const map of MAPS) {
+    assert.ok(Number.isInteger(map.waves) && map.waves > 0, `${map.name}: no wave target`);
+    assert.ok(Number.isInteger(map.built) && map.built > 0, `${map.name}: no turret limit`);
+  }
 });

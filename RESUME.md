@@ -1,6 +1,6 @@
 # ORCFLOW resume notes
 
-Cold-start state as of **2026-07-29** (built in one session). Read `DESIGN.md` for why
+Cold-start state as of **2026-07-29**, **v1.0.0 shipped**. Read `DESIGN.md` for why
 anything is shaped the way it is, this file is for picking the work back up.
 
 ## Where it lives
@@ -18,7 +18,15 @@ anything is shaped the way it is, this file is for picking the work back up.
 node serve.mjs                                   # http://localhost:8099/
 node --test test/field.test.mjs                  # 8 tests, all pure JS field logic
 node tools/smoke.mjs "http://localhost:8099/?bench=1&perf=1" 12
+node tools/playtest.mjs                          # bot plays all 4 maps, prints verdicts
 ```
+
+**`playtest.mjs` is the important one.** It is how every wave count and turret
+limit was chosen: the bot plays each map at 10 sim substeps per frame, a 14-wave
+run resolves in ~20s, and it reports held / overrun per map. Balance changes should
+be followed by a playtest run, not by a feeling. Current state: **4/4 maps
+survivable by the baseline bot at their own targets** (PILLARS is the tightest, it
+finishes on about 46 HP).
 
 `tools/smoke.mjs` boots a real browser over CDP, prints console output, exceptions and a
 state heartbeat, and screenshots to `shots/` (gitignored). It found most of the bugs in
@@ -37,11 +45,16 @@ compute 0.04–0.3 ms, render 0.1–0.6 ms. Vsync bound, not GPU bound. Capacity
 
 - Flow-field navigation with live rebake: paint a rampart, the horde reroutes mid-run
 - Crowd separation via an atomic density grid (the nose-to-tail river look)
-- Four weapons: blades disc, beam that locks onto the thickest crowd, beam that bounces off
-  rock, mortar that shells the thickest crowd
-- Waves with escalating headcount, gold from kills, base HP from leaks, lose state
+- Four weapons: blades disc, a beam that locks onto the thickest crowd, a beam that
+  bounces off rock, mortars that shell the thickest crowd
+- Per-weapon hit budgets, so a big enough horde walks through the line
+- Escalating build prices and a per-map turret limit
+- Campaign: 4 maps, per-map wave target and turret cap, unlock on clear
+- Title screen with live attract mode, map select, settings, pause, results
+- localStorage saves: unlocks, best wave per map, lifetime kills, settings
+- Procedural WebAudio: war horn, blades, blasts, leaks, win/lose stings, and a
+  crowd-death layer driven by kills per second rather than per orc
 - Corpses that darken as they dry and double as the blood system
-- 4 maps, ASCII authored, `M` cycles
 - Sandbox mode so benchmark floods cannot end a run
 - HUD with real WebGPU timestamp queries
 
@@ -49,10 +62,11 @@ compute 0.04–0.3 ms, render 0.1–0.6 ms. Vsync bound, not GPU bound. Capacity
 
 1. **`alive` is derived**, not counted: `spawned - kills - leaks`, clamped to capacity. Orcs
    overwritten by the spawn ring never report a death, so it drifts slightly while recycling.
-2. **No audio at all.** The GPU event ring buffer described in `DESIGN.md` is the intended
-   path: deaths and blasts push position + type, the CPU reads it async and plays sounds.
+2. **Audio is not positional.** Sounds are synthesised and mixed flat. The GPU event
+   ring buffer in `DESIGN.md` is still the path to positional audio and floating
+   damage text.
 3. **No sell or undo.** Ramparts and turrets are permanent once placed.
-4. **No upgrades**, no economy depth beyond build costs.
+4. **No upgrades**, no economy depth beyond escalating build costs.
 5. **Density snapshot is ~10 frames stale**, so beams and mortars aim slightly behind fast
    crowds. Noticeable with runners, fine with grunts.
 6. **Orcs hug corridor edges.** Best-neighbour flow plus density push does that. It looks
@@ -62,22 +76,24 @@ compute 0.04–0.3 ms, render 0.1–0.6 ms. Vsync bound, not GPU bound. Capacity
    recycled before they finish fading.
 9. **Desktop WebGPU only.** No WebGL fallback, phones get a banner. Automated smoke only
    drives Chrome; Firefox 141+ is verified by hand.
-10. **No menu, no start/finish framing.** It drops you straight into a map.
+10. **The bot never builds ramparts**, so map fairness is judged without the strongest
+    tool a player has. Every target therefore has hidden headroom.
 
 ## Next steps, roughly ranked
 
 1. **Tracer rounds as a second GPU particle system.** The reference game's machine-gun
    streams are thousands of tiny projectiles; same buffer + compute pattern as the orcs, with
    segment collision against the density grid. Biggest visual payoff left.
-2. **GPU event ring buffer** for audio and floating damage numbers. Design is written in
-   `DESIGN.md`, nothing exists yet. Unlocks sound, which is the single largest missing sense.
-3. **Sell / undo, and turret upgrades.** Cheap to add, immediately makes it feel like a game
-   rather than a sandbox.
-4. **Biome palettes.** The reference late game goes purple-crystal and teal-water; `art.js`
+2. **Sell / undo, and turret upgrades.** The most requested thing any TD needs, and the
+   economy already has the hooks (`build.counts`, `costOf`).
+3. **Teach the bot to build ramparts.** It would tighten every balance number and prove
+   the funnelling strategy is viable, not just available.
+4. **GPU event ring buffer** for positional audio and floating damage numbers. Design is
+   written in `DESIGN.md`.
+5. **Biome palettes.** The reference late game goes purple-crystal and teal-water; `art.js`
    and `ground.js` already take all colour from `PALETTE`, so this is a table swap.
-5. **Multi-portal maps**, two fronts at once. Code path exists, just needs authoring.
-6. **Menu, start, finish, sfx, music.** The actual challenge Tacker put out in #spicy-dev, and
-   the honest gap between this and a finished thing.
+6. **More maps**, and multi-portal maps for two fronts. `field.spawns` is already a list
+   and waves already cycle it.
 7. **Orc variety**: armour and resistances are one unused field in the `att` buffer away.
 
 ## Traps to not fall back into
@@ -92,6 +108,8 @@ Full detail in `DESIGN.md`, short version:
   seal a 4-cell corridor, never narrow it, which reads to the player as "ramparts don't work".
 - Damage shape radius must match the art. A 15-unit kill disc behind a 4-unit sprite reads as
   a bug even though it is working.
+- Area damage scales *with* crowd density, so a bigger horde feeds the turrets. Difficulty
+  comes from limits (hit budgets, turret caps, escalating prices), not from orc HP.
 - Wall rows in authored maps must open on **one side only**, or the map has a straight shortcut.
 - Chrome stops `requestAnimationFrame` on an **occluded window**: zero frames, no error, looks
   exactly like a hang. The smoke tool passes the occlusion flags.

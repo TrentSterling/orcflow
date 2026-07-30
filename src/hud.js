@@ -6,15 +6,16 @@ import { BUILDS } from './config.js';
 const $ = (id) => document.getElementById(id);
 
 export class Hud {
-  constructor({ onSelect, onStress, onFlood, onRestart }) {
+  constructor({ onSelect, onStress, onFlood }) {
     this.el = {
       hud: $('hud'), boot: $('boot'), bootmsg: $('bootmsg'),
       hpfill: $('hpfill'), hptext: $('hptext'),
-      gold: $('c-gold'), orcs: $('c-orcs'), kills: $('c-kills'),
+      gold: $('c-gold'), orcs: $('c-orcs'), kills: $('c-kills'), towers: $('c-towers'),
       waveN: $('w-n'), waveS: $('w-s'), waveMap: $('w-map'),
       fps: $('b-fps'), ms: $('b-ms'), compute: $('b-compute'), render: $('b-render'),
       alive: $('b-alive'), spawned: $('b-spawned'), cap: $('b-cap'),
-      bar: $('bar'), toast: $('toast'), over: $('over'), overSub: $('over-sub'),
+      bar: $('bar'), toast: $('toast'), over: $('over'),
+      overTitle: $('over-title'), overSub: $('over-sub'),
     };
 
     this.slots = BUILDS.map((b, i) => {
@@ -31,7 +32,6 @@ export class Hud {
 
     $('b-stress').addEventListener('click', onStress);
     $('b-flood').addEventListener('click', onFlood);
-    $('over-btn').addEventListener('click', onRestart);
     this._toastTimer = 0;
   }
 
@@ -51,7 +51,9 @@ export class Hud {
     this._toastTimer = setTimeout(() => this.el.toast.classList.remove('show'), 1400);
   }
 
-  gameOver(sub) {
+  gameOver(sub, title = 'OVERRUN') {
+    this.el.overTitle.textContent = title;
+    this.el.overTitle.style.color = title === 'OVERRUN' ? '' : 'var(--good)';
     this.el.overSub.textContent = sub;
     this.el.over.classList.add('show');
   }
@@ -63,6 +65,8 @@ export class Hud {
     e.gold.textContent = fmt(s.gold);
     e.orcs.textContent = fmt(s.alive);
     e.kills.textContent = fmt(s.kills);
+    e.towers.textContent = `${s.towers}/${s.towerCap}`;
+    e.towers.style.color = s.towers >= s.towerCap ? '#e2564a' : '';
 
     e.waveN.textContent = s.wave;
     e.waveS.textContent = s.waveText;
@@ -77,9 +81,16 @@ export class Hud {
     e.cap.textContent = s.recycling ? `${fmt(s.cap)} ↻` : fmt(s.cap);
     e.cap.title = s.recycling ? 'at capacity: new orcs overwrite the oldest slots' : '';
 
+    // Prices escalate per purchase, so the hotbar shows the live cost.
     this.slots.forEach((el, i) => {
       el.classList.toggle('on', i === s.selected);
-      el.classList.toggle('poor', BUILDS[i].cost > s.gold);
+      const price = s.costs?.[i] ?? BUILDS[i].cost;
+      el.classList.toggle('poor', price > s.gold);
+      const c = el.querySelector('.c');
+      if (c.dataset.price !== String(price)) {
+        c.dataset.price = String(price);
+        c.textContent = `${fmt(price)}g`;
+      }
     });
   }
 }

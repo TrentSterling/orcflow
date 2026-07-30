@@ -50,7 +50,10 @@ export class Horde {
     const att = instancedArray(MAX_ORCS, 'vec4');
     const dens = instancedArray(DENS_W * DENS_H, 'uint').toAtomic();
     const cnt = instancedArray(4, 'uint').toAtomic(); // kills, leaks, gold, hits
-    this._buffers = { pos, dat, att, dens, cnt };
+    // Per-weapon hit budget, refilled every frame. Without it, area damage grows
+    // with crowd density and a bigger horde just feeds the turrets.
+    const budget = instancedArray(MAX_TURRETS, 'uint').toAtomic();
+    this._buffers = { pos, dat, att, dens, cnt, budget };
 
     // ---- uniforms ----------------------------------------------------------
     const u = {
@@ -75,6 +78,8 @@ export class Horde {
 
     this.turretA = uniformArray(Array.from({ length: MAX_TURRETS }, () => new THREE.Vector4()), 'vec4');
     this.turretB = uniformArray(Array.from({ length: MAX_TURRETS }, () => new THREE.Vector4()), 'vec4');
+    // x = how many orcs this weapon may damage this frame
+    this.turretC = uniformArray(Array.from({ length: MAX_TURRETS }, () => new THREE.Vector4()), 'vec4');
     this.blastArr = uniformArray(Array.from({ length: MAX_BLASTS }, () => new THREE.Vector4()), 'vec4');
 
     // ---- shared shader helpers --------------------------------------------
@@ -211,13 +216,20 @@ export class Horde {
         Loop(u.turretCount, ({ i }) => {
           const A = this.turretA.element(i).toVar();   // x0, y0, kind, dps
           const B = this.turretB.element(i).toVar();   // x1, y1, halfWidth, radius
+          const inside = float(0).toVar();
           If(A.z.lessThan(0.5), () => {
-            If(length(p.sub(A.xy)).lessThan(B.w), () => { dmg.addAssign(A.w); });
+            If(length(p.sub(A.xy)).lessThan(B.w), () => { inside.assign(1); });
           }).Else(() => {
             const ab = B.xy.sub(A.xy).toVar();
             const t = clamp(dot(p.sub(A.xy), ab).div(dot(ab, ab).add(1e-4)), 0, 1).toVar();
             const close = A.xy.add(ab.mul(t)).toVar();
-            If(length(p.sub(close)).lessThan(B.z), () => { dmg.addAssign(A.w); });
+            If(length(p.sub(close)).lessThan(B.z), () => { inside.assign(1); });
+          });
+          // Claim a slot in this weapon's budget. Whoever gets there first this
+          // frame takes the damage; the rest of the crowd walks through.
+          If(inside.greaterThan(0.5), () => {
+            const slot = atomicAdd(this._buffers.budget.element(i), uint(1));
+            If(float(slot).lessThan(this.turretC.element(i).x), () => { dmg.addAssign(A.w); });
           });
         });
         Loop(u.blastCount, ({ i }) => {
@@ -254,6 +266,9 @@ export class Horde {
     // ---- pass: clear density ----------------------------------------------
     this.clearPass = Fn(() => {
       atomicStore(dens.element(instanceIndex), uint(0));
+      If(instanceIndex.lessThan(uint(MAX_TURRETS)), () => {
+        atomicStore(budget.element(instanceIndex), uint(0));
+      });
     })().compute(DENS_W * DENS_H);
 
     // ---- render ------------------------------------------------------------
@@ -423,6 +438,7 @@ export class Horde {
       const w = list[i];
       this.turretA.array[i].set(w.x0, w.y0, w.kind, w.dps);
       this.turretB.array[i].set(w.x1 ?? 0, w.y1 ?? 0, w.width ?? 0, w.radius ?? 0);
+      this.turretC.array[i].set(w.cap ?? 1e9, 0, 0, 0);
     }
     this.u.turretCount.value = n;
   }

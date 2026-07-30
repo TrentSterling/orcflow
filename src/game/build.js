@@ -8,7 +8,7 @@
 //   bounce  -> one segment per reflection leg, zig-zagging off rock
 //   mortar  -> blasts, which are discs with a short life
 
-import { CELL_SCALE, RAMPART, BLAST_LIFE, MAX_BLASTS, MAX_TURRETS } from '../config.js';
+import { CELL_SCALE, RAMPART, BLAST_LIFE, MAX_BLASTS, MAX_TURRETS, MAX_BUILT } from '../config.js';
 
 let nextId = 1;
 
@@ -20,13 +20,23 @@ const shortestTurn = (from, to) => {
 };
 
 export class Build {
-  constructor(field, ground, horde) {
+  constructor(field, ground, horde, maxBuilt = MAX_BUILT) {
+    this.maxBuilt = maxBuilt;
     this.field = field;
     this.ground = ground;
     this.horde = horde;
     this.turrets = [];
     this.blasts = [];
     this.segments = [];        // what Effects draws
+    this.counts = {};          // per-build purchases, for price escalation
+  }
+
+  // Every copy of a build costs more than the last. Without this the player just
+  // carpets the map and placement stops being a decision: the baseline bot won
+  // 20 waves untouched with 300 turrets.
+  costOf(build) {
+    const n = this.counts[build.id] ?? 0;
+    return Math.round(build.cost * Math.pow(build.escalate ?? 1.17, n));
   }
 
   // Ramparts snap to a RAMPART-sized lattice of sim cells.
@@ -45,7 +55,10 @@ export class Build {
     return { x: Math.round(world.x - 0.5) + 0.5, y: Math.round(world.y - 0.5) + 0.5 };
   }
 
+  atCap() { return this.turrets.length >= this.maxBuilt; }
+
   valid(world, build) {
+    if (build.kind !== 'wall' && this.atCap()) return false;
     if (build.kind === 'wall') {
       const { gx, gy } = this.rampartAt(world);
       if (!this.field.canBuildCells(gx, gy, RAMPART)) return false;
@@ -65,6 +78,7 @@ export class Build {
 
   // Returns null on success or a short reason to show the player.
   place(world, build) {
+    if (build.kind !== 'wall' && this.atCap()) return `turret limit reached (${this.maxBuilt})`;
     if (!this.valid(world, build)) return 'blocked';
     const c = this.snap(world, build);
 
@@ -78,6 +92,7 @@ export class Build {
         return 'that would seal the path';
       }
       this.ground.rebuild();
+      this.counts[build.id] = (this.counts[build.id] ?? 0) + 1;
       return null;
     }
 
@@ -90,6 +105,7 @@ export class Build {
       width: build.width ?? 1,
       sweep: build.sweep ?? 0,
       dwell: build.dwell ?? 1.2,
+      hitsPerSec: build.hitsPerSec ?? 1e6,
       bounces: build.bounces ?? 0,
       blast: build.blast ?? 0,
       cooldown: build.cooldown ?? 1,
@@ -97,6 +113,7 @@ export class Build {
       target: null,
       angle: Math.random() * Math.PI * 2,
     });
+    this.counts[build.id] = (this.counts[build.id] ?? 0) + 1;
     return null;
   }
 
@@ -125,7 +142,7 @@ export class Build {
 
     for (const t of this.turrets) {
       if (t.type === 0) {
-        weapons.push({ kind: 0, x0: t.x, y0: t.y, dps: t.dps, radius: t.range });
+        weapons.push({ kind: 0, x0: t.x, y0: t.y, dps: t.dps, radius: t.range, cap: t.hitsPerSec * dt });
         continue;
       }
 
@@ -145,16 +162,18 @@ export class Build {
           t.angle += 0.7 * dt;      // idle scan
         }
         const hit = this.field.rayHit(t.x, t.y, Math.cos(t.angle), Math.sin(t.angle), t.range);
-        weapons.push({ kind: 1, x0: t.x, y0: t.y, x1: hit.x, y1: hit.y, dps: t.dps, width: t.width });
+        weapons.push({ kind: 1, x0: t.x, y0: t.y, x1: hit.x, y1: hit.y, dps: t.dps, width: t.width, cap: t.hitsPerSec * dt });
         this.segments.push({ x0: t.x, y0: t.y, x1: hit.x, y1: hit.y, width: t.width, hot: 1 });
         continue;
       }
 
       if (t.type === 2) {
         t.angle += t.sweep * dt;
-        for (const leg of this.#bounceLegs(t)) {
+        const bounceLegs = this.#bounceLegs(t);
+        const legs = bounceLegs.length;
+        for (const leg of bounceLegs) {
           if (weapons.length >= MAX_TURRETS) break;
-          weapons.push({ kind: 1, ...leg, dps: t.dps, width: t.width });
+          weapons.push({ kind: 1, ...leg, dps: t.dps, width: t.width, cap: (t.hitsPerSec / Math.max(1, legs)) * dt });
           this.segments.push({ ...leg, width: t.width, hot: 0.75 });
         }
         continue;

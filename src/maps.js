@@ -1,4 +1,10 @@
-// Authored maps. 24x14 characters, each character becomes a 4x4 block of sim
+// `built` is the turret limit for that map: open maps need more coverage than
+// corridor maps, which is the lever that keeps them fair.
+//
+// Authored maps, ordered by measured difficulty: tools/playtest.mjs plays each
+// one with the baseline bot, and `waves` is the target that map is balanced for.
+//
+// 24x14 characters, each character becomes a 4x4 block of sim
 // cells, so a one-character corridor is 4 units wide (roughly 8 orcs abreast).
 //
 //   #  rock      .  dirt      S  orc portal      B  your base
@@ -8,9 +14,32 @@
 
 export const MAPS = [
   {
+    name: 'THE FORK',
+    waves: 12,
+    built: 24,
+    rows: [
+      '########################',
+      '#.........S............#',
+      '#......................#',
+      '#......########........#',
+      '#......########........#',
+      '#......########........#',
+      '#......########........#',
+      '#......########........#',
+      '#......########........#',
+      '#......########........#',
+      '#......................#',
+      '#.........B............#',
+      '#......................#',
+      '########################',
+    ],
+  },
+  {
     // Each wall row opens on ONE side only, otherwise the left edge becomes a
     // straight shot and the serpentine does nothing.
     name: 'THE SNAKE',
+    waves: 14,
+    built: 24,
     rows: [
       '########################',
       '#S.....................#',
@@ -30,6 +59,8 @@ export const MAPS = [
   },
   {
     name: 'PILLARS',
+    waves: 13,
+    built: 38,
     rows: [
       '########################',
       '#S.....................#',
@@ -48,26 +79,9 @@ export const MAPS = [
     ],
   },
   {
-    name: 'THE FORK',
-    rows: [
-      '########################',
-      '#.........S............#',
-      '#......................#',
-      '#......########........#',
-      '#......########........#',
-      '#......########........#',
-      '#......########........#',
-      '#......########........#',
-      '#......########........#',
-      '#......########........#',
-      '#......................#',
-      '#.........B............#',
-      '#......................#',
-      '########################',
-    ],
-  },
-  {
     name: 'CHICANE',
+    waves: 12,
+    built: 44,
     rows: [
       '########################',
       '#S.....................#',
