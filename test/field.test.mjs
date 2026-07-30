@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Field } from '../src/field.js';
 import { MAPS } from '../src/maps.js';
-import { AUTHOR_W, AUTHOR_H, GRID_W, GRID_H, CELL_SCALE } from '../src/config.js';
+import { AUTHOR_W, AUTHOR_H, GRID_W, GRID_H, CELL_SCALE, RAMPART } from '../src/config.js';
 
 test('every authored map loads and every portal can reach the base', () => {
   for (const map of MAPS) {
@@ -90,6 +90,26 @@ test('walling the base off makes the portal unreachable, and undo restores it', 
   for (const [x, y] of ring) f.setBlock(x, y, false);
   f.bake();
   assert.ok(f.reachable(), 'undo should restore the path');
+});
+
+test('a half-block rampart narrows a corridor, a full block would seal it', () => {
+  const f = new Field(MAPS[0]);          // THE SNAKE: corridors are one authored block wide
+  const gx = 20, gy = f.spawns[0].y - 2; // inside the top corridor, on the rampart lattice
+
+  assert.ok(f.canBuildCells(gx, gy, RAMPART), 'corridor should accept a rampart');
+  f.setCells(gx, gy, RAMPART, true);
+  f.bake();
+  assert.ok(f.reachable(), 'a half-block rampart must leave a way through');
+
+  f.setCells(gx, gy, RAMPART, false);
+  f.bake();
+  assert.ok(f.reachable());
+
+  // The reason ramparts are not authored-block sized: 4 cells is the full
+  // width of the corridor, so a block-sized rampart could only ever seal it.
+  f.setCells(gx, gy, CELL_SCALE, true);
+  f.bake();
+  assert.equal(f.reachable(), false, 'a full block across a 4-cell corridor seals it');
 });
 
 test('cost rises as you walk away from the base', () => {

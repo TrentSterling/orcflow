@@ -81,6 +81,29 @@ export class Field {
     return true;
   }
 
+  // Arbitrary-size footprint in sim cells. Ramparts are smaller than an authored
+  // block on purpose: a corridor is one authored block wide, so a block-sized
+  // rampart could only ever seal it, never narrow it.
+  canBuildCells(gx, gy, size) {
+    if (gx < 1 || gy < 1 || gx + size > this.w - 1 || gy + size > this.h - 1) return false;
+    for (let oy = 0; oy < size; oy++) {
+      for (let ox = 0; ox < size; ox++) {
+        if (this.walls[(gy + oy) * this.w + gx + ox]) return false;
+      }
+    }
+    return true;
+  }
+
+  setCells(gx, gy, size, rock) {
+    for (let oy = 0; oy < size; oy++) {
+      for (let ox = 0; ox < size; ox++) {
+        const x = gx + ox, y = gy + oy;
+        if (x < 0 || y < 0 || x >= this.w || y >= this.h) continue;
+        this.walls[y * this.w + x] = rock ? 1 : 0;
+      }
+    }
+  }
+
   setBlock(bx, by, rock) {
     const gx = bx * CELL_SCALE, gy = by * CELL_SCALE;
     for (let oy = 0; oy < CELL_SCALE; oy++) {

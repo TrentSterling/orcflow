@@ -38,6 +38,10 @@ export const ORC_TYPES = [
   { name: 'runner', hp: 7,   speed: 7.4, gold: 2, scale: 0.50 },
 ];
 
+// Rampart footprint in sim cells: half an authored block, so a 4-cell corridor
+// can be narrowed to 2 instead of only being sealed.
+export const RAMPART = 2;
+
 export const BASE_HP = 90;
 export const START_GOLD = 320;
 
@@ -47,8 +51,8 @@ export const START_GOLD = 320;
 //   2 bounce  zig-zag beam that reflects off rock, one segment per leg
 //   3 mortar  lobs blasts at the thickest crowd
 export const BUILDS = [
-  { key: '1', id: 'wall',   name: 'RAMPART', cost: 8,   kind: 'wall' },
-  { key: '2', id: 'blades', name: 'BLADES',  cost: 60,  kind: 'turret', type: 0, range: 7.5,  dps: 70 },
+  { key: '1', id: 'wall',   name: 'RAMPART', cost: 8,   kind: 'wall', size: RAMPART },
+  { key: '2', id: 'blades', name: 'BLADES',  cost: 60,  kind: 'turret', type: 0, range: 5.5,  dps: 95 },
   { key: '3', id: 'beam',   name: 'BEAM',    cost: 180, kind: 'turret', type: 1, range: 26.0, dps: 520, width: 1.0, dwell: 1.5 },
   { key: '4', id: 'bounce', name: 'BOUNCE',  cost: 220, kind: 'turret', type: 2, range: 74.0, dps: 300, width: 0.8, bounces: 5, sweep: 0.5 },
   { key: '5', id: 'mortar', name: 'MORTAR',  cost: 240, kind: 'turret', type: 3, range: 30.0, dps: 900, blast: 4.2, cooldown: 2.4 },

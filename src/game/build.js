@@ -8,7 +8,7 @@
 //   bounce  -> one segment per reflection leg, zig-zagging off rock
 //   mortar  -> blasts, which are discs with a short life
 
-import { CELL_SCALE, BLAST_LIFE, MAX_BLASTS, MAX_TURRETS } from '../config.js';
+import { CELL_SCALE, RAMPART, BLAST_LIFE, MAX_BLASTS, MAX_TURRETS } from '../config.js';
 
 let nextId = 1;
 
@@ -29,27 +29,28 @@ export class Build {
     this.segments = [];        // what Effects draws
   }
 
-  blockAt(world) {
+  // Ramparts snap to a RAMPART-sized lattice of sim cells.
+  rampartAt(world) {
     return {
-      bx: Math.floor(world.x / CELL_SCALE),
-      by: Math.floor(world.y / CELL_SCALE),
+      gx: Math.floor(world.x / RAMPART) * RAMPART,
+      gy: Math.floor(world.y / RAMPART) * RAMPART,
     };
   }
 
   snap(world, build) {
     if (build.kind === 'wall') {
-      const { bx, by } = this.blockAt(world);
-      return { x: (bx + 0.5) * CELL_SCALE, y: (by + 0.5) * CELL_SCALE };
+      const { gx, gy } = this.rampartAt(world);
+      return { x: gx + RAMPART / 2, y: gy + RAMPART / 2 };
     }
     return { x: Math.round(world.x - 0.5) + 0.5, y: Math.round(world.y - 0.5) + 0.5 };
   }
 
   valid(world, build) {
     if (build.kind === 'wall') {
-      const { bx, by } = this.blockAt(world);
-      if (!this.field.canBuildBlock(bx, by)) return false;
+      const { gx, gy } = this.rampartAt(world);
+      if (!this.field.canBuildCells(gx, gy, RAMPART)) return false;
       const c = this.snap(world, build);
-      return !this.turrets.some((t) => Math.abs(t.x - c.x) < CELL_SCALE && Math.abs(t.y - c.y) < CELL_SCALE);
+      return !this.turrets.some((t) => Math.abs(t.x - c.x) < 2 && Math.abs(t.y - c.y) < 2);
     }
     const c = this.snap(world, build);
     for (let oy = -1; oy <= 1; oy++) {
@@ -68,11 +69,11 @@ export class Build {
     const c = this.snap(world, build);
 
     if (build.kind === 'wall') {
-      const { bx, by } = this.blockAt(world);
-      this.field.setBlock(bx, by, true);
+      const { gx, gy } = this.rampartAt(world);
+      this.field.setCells(gx, gy, RAMPART, true);
       this.field.bake();
       if (!this.field.reachable()) {
-        this.field.setBlock(bx, by, false);
+        this.field.setCells(gx, gy, RAMPART, false);
         this.field.bake();
         return 'that would seal the path';
       }

@@ -5,7 +5,6 @@
 import * as THREE from 'three/webgpu';
 import { texture, uv, vec2 } from 'three/tsl';
 import { makeTurretAtlas, makeGlow, makeBeam } from './art.js';
-import { CELL_SCALE } from './config.js';
 
 const TURRET_SIZE = 3.2;
 // turret behaviour -> atlas tile (blades, emitter, emitter, mortar)
@@ -35,11 +34,18 @@ export class Effects {
       map: this.glowTex, transparent: true, depthWrite: false,
       blending: THREE.AdditiveBlending,
     });
+    // Dim wash drawn at the true damage diameter, so the blade turret's kill
+    // zone is the thing you see rather than a small glow inside a big radius.
+    this.zoneMat = new THREE.MeshBasicNodeMaterial({
+      map: this.glowTex, transparent: true, depthWrite: false, opacity: 0.3,
+      blending: THREE.AdditiveBlending,
+    });
 
     this.quad = new THREE.PlaneGeometry(1, 1);
     this.turretPool = [];
     this.beamPool = [];
     this.glowPool = [];
+    this.zonePool = [];
 
     // build ghost: a tinted block plus a range ring
     this.ghost = new THREE.Mesh(this.quad, new THREE.MeshBasicNodeMaterial({
@@ -82,23 +88,31 @@ export class Effects {
   // `segments` are flat {x0,y0,x1,y1,width,hot} beams: one for a locked beam,
   // one per leg for a bouncing one. The renderer does not care which.
   sync(turrets, segments, blasts, time) {
-    let ti = 0, bi = 0, gi = 0;
+    let ti = 0, bi = 0, gi = 0, zi = 0;
 
     for (const t of turrets) {
       const tile = TILE_FOR_TYPE[t.type] ?? 0;
       const mesh = this.#at(this.turretPool, ti, this.turretMats[tile]);
       mesh.material = this.turretMats[tile];
       mesh.position.set(t.x, t.y, 0.4);
-      mesh.scale.set(TURRET_SIZE, TURRET_SIZE, 1);
+      // Blades are sized to their kill zone; the others are fixed sprites.
+      const size = t.type === 0 ? Math.max(TURRET_SIZE, t.range * 1.15) : TURRET_SIZE;
+      mesh.scale.set(size, size, 1);
       // blades spin, emitters point where they aim, mortars sit still
       mesh.rotation.z = t.type === 0 ? time * 5.5 : (t.type === 3 ? 0 : t.angle);
       ti++;
 
       if (t.type === 0) {
+        // wash at the real damage diameter
+        const zone = this.#at(this.zonePool, zi, this.zoneMat);
+        zone.position.set(t.x, t.y, 0.3);
+        const zs = t.range * 2;
+        zone.scale.set(zs, zs, 1);
+        zi++;
+        const pulse = 0.55 + 0.45 * Math.abs(Math.sin(time * 22 + t.x));
         const flash = this.#at(this.glowPool, gi, this.glowMat);
         flash.position.set(t.x, t.y, 0.55);
-        const pulse = 0.55 + 0.45 * Math.abs(Math.sin(time * 22 + t.x));
-        const s = t.range * 0.5 * pulse;
+        const s = t.range * 0.9 * pulse;
         flash.scale.set(s, s, 1);
         gi++;
       }
@@ -133,11 +147,12 @@ export class Effects {
     this.#hideFrom(this.turretPool, ti);
     this.#hideFrom(this.beamPool, bi);
     this.#hideFrom(this.glowPool, gi);
+    this.#hideFrom(this.zonePool, zi);
   }
 
   setGhost(world, build, valid) {
     if (!world || !build) { this.ghost.visible = false; this.ring.visible = false; return; }
-    const size = build.kind === 'wall' ? CELL_SCALE : 3.0;
+    const size = build.size ?? 3.0;
     this.ghost.visible = true;
     this.ghost.position.set(world.x, world.y, 0.5);
     this.ghost.scale.set(size, size, 1);

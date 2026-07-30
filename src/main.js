@@ -218,6 +218,26 @@ function flood(count = Math.floor(MAX_ORCS / 2)) {
 const bench = { next: 2, step: 0, rate: Number(PARAMS.get('rate') ?? 4000) };
 
 if (PARAMS.get('autobuild') === '1') autobuild();
+if (PARAMS.get('ramparts')) dropRamparts(Number(PARAMS.get('ramparts')));
+
+// Paint ramparts along the path through the same code a click uses, so the
+// placement + rebake + reachability guard all get exercised.
+function dropRamparts(n) {
+  const cells = [];
+  for (let y = 2; y < GRID_H - 2; y += 2) {
+    for (let x = 2; x < GRID_W - 2; x += 2) {
+      const c = field.cost[field.idx(x, y)];
+      if (Number.isFinite(c) && !field.isWall(x, y)) cells.push({ x: x + 0.5, y: y + 0.5, c });
+    }
+  }
+  cells.sort((a, b) => a.c - b.c);
+  let placed = 0, refused = 0;
+  for (let i = 0; i < cells.length && placed < n; i += 3) {
+    if (build.place(cells[i], BUILDS[0])) refused++; else placed++;
+  }
+  refreshField();
+  console.log(`[ramparts] placed ${placed}, refused ${refused} (would have sealed the path)`);
+}
 if (PARAMS.get('spawn')) flood(Number(PARAMS.get('spawn')));
 if (PARAMS.get('wave') === '1') waves.call();   // start the real game loop headlessly
 
