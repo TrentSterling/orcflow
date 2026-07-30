@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SIR, WE HAVE A FLOW FIELD</title>
+<link rel="icon" href="data:,">
+
+<script type="importmap">
+{
+  "imports": {
+    "three/webgpu": "./vendor/three.webgpu.js",
+    "three/tsl": "./vendor/three.tsl.js"
+  }
+}
+</script>
+<style>
+  :root {
+    --ink: #f3e3c2;
+    --dim: #b39a72;
+    --panel: rgba(20, 13, 7, 0.82);
+    --edge: #4d3620;
+    --gold: #e8c33c;
+    --blood: #b8322a;
+    --good: #8fdc5a;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }   /* beats the display rules below */
+  html, body {
+    margin: 0; height: 100%; overflow: hidden;
+    background: #100b06; color: var(--ink);
+    font: 13px/1.4 "Consolas", "DejaVu Sans Mono", monospace;
+    -webkit-font-smoothing: none;
+  }
+  canvas { display: block; image-rendering: pixelated; }
+
+  #hud { position: fixed; inset: 0; pointer-events: none; user-select: none; }
+  .panel {
+    background: var(--panel);
+    border: 2px solid var(--edge);
+    box-shadow: 0 2px 0 #000, inset 0 0 0 1px rgba(255,255,255,0.05);
+  }
+
+  /* top centre: base health + counters */
+  #top { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); text-align: center; }
+  #top .label { font-size: 11px; letter-spacing: 2px; color: var(--dim); }
+  #hpwrap { width: 320px; height: 20px; margin: 2px auto 0; position: relative; }
+  #hpfill { position: absolute; inset: 2px; width: calc(100% - 4px); background: linear-gradient(#e2564a, #a4231c); transition: width 120ms linear; }
+  #hptext { position: absolute; inset: 0; line-height: 20px; font-size: 12px; text-shadow: 0 1px 0 #000; }
+  #counters { display: flex; gap: 18px; justify-content: center; margin-top: 6px; font-size: 14px; text-shadow: 0 1px 0 #000; }
+  #counters b { font-weight: normal; }
+  .c-gold b { color: var(--gold); }
+  .c-orcs b { color: var(--good); }
+  .c-kills b { color: #d9d2c4; }
+
+  /* top right: wave */
+  #wave { position: absolute; top: 10px; right: 10px; padding: 8px 12px; text-align: right; min-width: 150px; }
+  #wave .n { font-size: 20px; color: var(--gold); }
+  #wave .s { font-size: 11px; color: var(--dim); }
+
+  /* top left: benchmark */
+  #bench { position: absolute; top: 10px; left: 10px; padding: 8px 10px; pointer-events: auto; min-width: 196px; }
+  #bench h4 { margin: 0 0 6px; font-size: 11px; letter-spacing: 2px; color: var(--dim); font-weight: normal; }
+  #bench .row { display: flex; justify-content: space-between; gap: 12px; }
+  #bench .row span:last-child { color: var(--gold); }
+  #bench .fps { font-size: 22px; line-height: 1.1; color: var(--good); }
+  #bench button {
+    margin-top: 7px; width: 100%; cursor: pointer;
+    background: #2a1d0f; color: var(--ink); border: 1px solid var(--edge);
+    font: inherit; padding: 4px 6px;
+  }
+  #bench button:hover { background: #3d2a15; }
+
+  /* bottom centre: hotbar */
+  #bar { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); display: flex; gap: 4px; padding: 4px; pointer-events: auto; }
+  .slot { width: 86px; padding: 6px 4px 5px; text-align: center; cursor: pointer; background: rgba(38,26,14,0.9); border: 2px solid var(--edge); }
+  .slot:hover { border-color: #7a5732; }
+  .slot.on { border-color: var(--gold); background: rgba(70,48,18,0.95); }
+  .slot.poor { opacity: 0.45; }
+  .slot .k { font-size: 10px; color: var(--dim); }
+  .slot .n { font-size: 12px; letter-spacing: 1px; }
+  .slot .c { font-size: 11px; color: var(--gold); }
+
+  #hint { position: absolute; bottom: 96px; left: 50%; transform: translateX(-50%); font-size: 11px; color: var(--dim); text-align: center; }
+  #toast { position: absolute; top: 33%; left: 50%; transform: translateX(-50%); font-size: 16px; color: #ffd9a0; text-shadow: 0 2px 0 #000; opacity: 0; transition: opacity 200ms; }
+  #toast.show { opacity: 1; }
+
+  #over { position: absolute; inset: 0; display: none; place-content: center; text-align: center; background: rgba(12,6,3,0.78); pointer-events: auto; }
+  #over.show { display: grid; }
+  #over h1 { margin: 0; font-size: 40px; letter-spacing: 4px; color: var(--blood); }
+  #over p { color: var(--dim); }
+  #over button { margin-top: 10px; background: #2a1d0f; color: var(--ink); border: 2px solid var(--edge); font: inherit; padding: 8px 18px; cursor: pointer; }
+
+  #boot { position: fixed; inset: 0; display: grid; place-content: center; text-align: center; padding: 24px; }
+  #boot h1 { font-size: 26px; letter-spacing: 3px; margin: 0 0 8px; }
+  #boot p { color: var(--dim); max-width: 460px; }
+  #boot code { color: var(--gold); }
+  #boot .sub { color: var(--gold); letter-spacing: 2px; font-size: 12px; }
+  #boot .credit { margin-top: 18px; font-size: 11px; line-height: 1.6; }
+  #boot .credit a, #about a { color: var(--gold); }
+
+  #aboutbtn {
+    position: absolute; bottom: 12px; right: 12px; pointer-events: auto; cursor: pointer;
+    padding: 6px 10px; font: inherit; color: var(--ink);
+    background: rgba(38,26,14,0.9); border: 2px solid var(--edge);
+  }
+  #aboutbtn:hover { border-color: var(--gold); }
+  #about {
+    position: absolute; bottom: 52px; right: 12px; width: 430px; max-width: calc(100vw - 24px);
+    padding: 14px 16px; pointer-events: auto; display: none;
+  }
+  #about.show { display: block; }
+  #about h3 { margin: 0 0 6px; font-size: 11px; letter-spacing: 2px; color: var(--gold); font-weight: normal; }
+  #about p { margin: 0 0 12px; color: var(--dim); font-size: 12px; line-height: 1.6; }
+  #about b { color: var(--ink); font-weight: normal; }
+</style>
+</head>
+<body>
+<div id="boot">
+  <h1>ORCFLOW</h1>
+  <div class="sub">SIR, WE HAVE A FLOW FIELD</div>
+  <p id="bootmsg">Starting WebGPU&hellip;</p>
+  <p class="credit">
+    A tech homage to <b>Sir, We Have an Orc Problem</b> by <b>Mumpitz Games</b>.<br>
+    <a href="https://store.steampowered.com/search/?term=Sir%2C+We+Have+an+Orc+Problem" target="_blank" rel="noopener">Go play the real one</a>,
+    it is the good version. Not affiliated, not endorsed, not for sale.
+  </p>
+</div>
+
+<div id="hud" hidden>
+  <div id="bench" class="panel">
+    <h4>BENCHMARK</h4>
+    <div class="fps"><span id="b-fps">--</span> fps</div>
+    <div class="row"><span>frame</span><span id="b-ms">--</span></div>
+    <div class="row"><span>compute</span><span id="b-compute">--</span></div>
+    <div class="row"><span>render</span><span id="b-render">--</span></div>
+    <div class="row"><span>orcs alive</span><span id="b-alive">0</span></div>
+    <div class="row"><span>spawned</span><span id="b-spawned">0</span></div>
+    <div class="row"><span>capacity</span><span id="b-cap">0</span></div>
+    <button id="b-stress">STRESS +10,000</button>
+    <button id="b-flood">FLOOD (fill the map)</button>
+  </div>
+
+  <div id="top">
+    <div class="label">BASE</div>
+    <div id="hpwrap" class="panel">
+      <div id="hpfill"></div>
+      <div id="hptext">90 / 90</div>
+    </div>
+    <div id="counters">
+      <span class="c-gold">gold <b id="c-gold">0</b></span>
+      <span class="c-orcs">orcs <b id="c-orcs">0</b></span>
+      <span class="c-kills">kills <b id="c-kills">0</b></span>
+    </div>
+  </div>
+
+  <div id="wave" class="panel">
+    <div class="n">WAVE <span id="w-n">0</span></div>
+    <div class="s" id="w-s">press SPACE to begin</div>
+    <div class="s" id="w-map"></div>
+  </div>
+
+  <div id="hint">1-4 pick &middot; click place &middot; SPACE next wave &middot; wheel zoom &middot; right-drag pan &middot; M next map</div>
+  <div id="bar" class="panel"></div>
+  <div id="toast"></div>
+
+  <button id="aboutbtn">ABOUT</button>
+  <div id="about" class="panel">
+    <h3>WHAT YOU ARE LOOKING AT</h3>
+    <p>
+      Around <b>95,000 orcs</b>, every one of them steered, crowded, damaged and killed
+      entirely on the GPU. One flow field bake per map edit, four WebGPU compute passes per
+      frame, not a single orc on the CPU. It holds 60&nbsp;fps with the compute pass under a
+      millisecond, so the horde is not what costs you anything.
+    </p>
+    <h3>WHY IT EXISTS</h3>
+    <p>
+      Built in a day to answer one question: is the tech behind the big orc horde game a moat?
+      It is not. Finishing a game still is. This one earns exactly zero dollars, which is the
+      other half of the point.
+    </p>
+    <h3>CREDITS</h3>
+    <p>
+      Inspired by <b>Sir, We Have an Orc Problem</b> by <b>Mumpitz Games</b> (Laurin + Stephan).
+      <a href="https://store.steampowered.com/search/?term=Sir%2C+We+Have+an+Orc+Problem" target="_blank" rel="noopener">Buy theirs</a>,
+      they did the hard part. Clean room homage: no code, art or assets of theirs are used, every
+      texture here is drawn procedurally at boot. Not affiliated with or endorsed by them.
+    </p>
+    <h3>BUILT BY</h3>
+    <p>
+      Trent Sterling, <a href="https://tront.xyz" target="_blank" rel="noopener">tront.xyz</a>.
+      Three.js + WebGPU compute, MIT licensed, source on
+      <a href="https://github.com/TrentSterling/orcflow" target="_blank" rel="noopener">GitHub</a>.
+    </p>
+  </div>
+
+  <div id="over">
+    <div>
+      <h1>OVERRUN</h1>
+      <p id="over-sub"></p>
+      <button id="over-btn">TRY AGAIN</button>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
