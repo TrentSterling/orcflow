@@ -8,7 +8,7 @@
 //   bounce  -> one segment per reflection leg, zig-zagging off rock
 //   mortar  -> blasts, which are discs with a short life
 
-import { CELL_SCALE, RAMPART, BLAST_LIFE, MAX_BLASTS, MAX_TURRETS, MAX_BUILT } from '../config.js';
+import { CELL_SCALE, RAMPART, TURRET_SIZE, BLAST_LIFE, MAX_BLASTS, MAX_TURRETS, MAX_BUILT, NO_BUILD_RADIUS, ABILITIES } from '../config.js';
 
 let nextId = 1;
 
@@ -29,6 +29,57 @@ export class Build {
     this.blasts = [];
     this.segments = [];        // what Effects draws
     this.counts = {};          // per-build purchases, for price escalation
+    this.cooldowns = Object.fromEntries(ABILITIES.map((a) => [a.id, 0]));
+  }
+
+  // ---- active abilities -----------------------------------------------------
+  abilityReady(a) { return (this.cooldowns[a.id] ?? 0) <= 0; }
+
+  fireAbility(a, at, dir = { x: 1, y: 0 }) {
+    if (!this.abilityReady(a)) return false;
+    this.cooldowns[a.id] = a.cooldown;
+    const len = Math.hypot(dir.x, dir.y) || 1;
+    const ux = dir.x / len, uy = dir.y / len;
+    const first = -((a.count - 1) / 2) * a.spacing;
+    for (let i = 0; i < a.count; i++) {
+      if (this.blasts.length >= MAX_BLASTS) break;
+      const d = first + i * a.spacing;
+      this.blasts.push({
+        x: at.x + ux * d, y: at.y + uy * d,
+        radius: a.radius * 0.4, full: a.radius,
+        dps: a.dps, life: a.life, life0: a.life, hitsPerSec: a.hitsPerSec ?? 1e6,
+      });
+    }
+    return true;
+  }
+
+  // ---- upgrades -------------------------------------------------------------
+  // Without these, player power is capped while wave demand compounds ~30% a
+  // wave, so every map ends in the same wall no matter how the numbers are
+  // tuned. Upgrades are how gold keeps converting into power.
+  turretAt(world, r = 1.8) {
+    let best = null, bestD = r;
+    for (const t of this.turrets) {
+      const d = Math.hypot(t.x - world.x, t.y - world.y);
+      if (d < bestD) { bestD = d; best = t; }
+    }
+    return best;
+  }
+
+  upgradeCost(t) {
+    return Math.round(t.baseCost * 0.8 * Math.pow(1.55, t.level - 1));
+  }
+
+  maxLevel() { return 6; }
+
+  upgrade(t) {
+    if (t.level >= this.maxLevel()) return 'max level';
+    t.level++;
+    t.dps *= 1.6;
+    t.hitsPerSec *= 1.5;
+    t.range *= 1.05;
+    if (t.blast) t.blast *= 1.06;
+    return null;
   }
 
   // Every copy of a build costs more than the last. Without this the player just
@@ -36,54 +87,57 @@ export class Build {
   // 20 waves untouched with 300 turrets.
   costOf(build) {
     const n = this.counts[build.id] ?? 0;
-    return Math.round(build.cost * Math.pow(build.escalate ?? 1.17, n));
+    return Math.round(build.cost * Math.pow(build.escalate ?? 1.13, n));
   }
 
   // Ramparts snap to a RAMPART-sized lattice of sim cells.
-  rampartAt(world) {
+  // Ramparts and turrets each snap to their own lattice of sim cells.
+  latticeAt(world, size) {
     return {
-      gx: Math.floor(world.x / RAMPART) * RAMPART,
-      gy: Math.floor(world.y / RAMPART) * RAMPART,
+      gx: Math.floor(world.x / size) * size,
+      gy: Math.floor(world.y / size) * size,
     };
   }
 
   snap(world, build) {
-    if (build.kind === 'wall') {
-      const { gx, gy } = this.rampartAt(world);
-      return { x: gx + RAMPART / 2, y: gy + RAMPART / 2 };
-    }
-    return { x: Math.round(world.x - 0.5) + 0.5, y: Math.round(world.y - 0.5) + 0.5 };
+    const size = build.kind === 'wall' ? RAMPART : TURRET_SIZE;
+    const { gx, gy } = this.latticeAt(world, size);
+    return { x: gx + size / 2, y: gy + size / 2 };
   }
 
   atCap() { return this.turrets.length >= this.maxBuilt; }
 
+  nearPortal(c) {
+    return this.field.spawns.some((s) => Math.hypot(s.x - c.x, s.y - c.y) < NO_BUILD_RADIUS);
+  }
+
   valid(world, build) {
-    if (build.kind !== 'wall' && this.atCap()) return false;
+    const c = this.snap(world, build);
+    if (this.nearPortal(c)) return false;
     if (build.kind === 'wall') {
-      const { gx, gy } = this.rampartAt(world);
+      const { gx, gy } = this.latticeAt(world, RAMPART);
       if (!this.field.canBuildCells(gx, gy, RAMPART)) return false;
-      const c = this.snap(world, build);
       return !this.turrets.some((t) => Math.abs(t.x - c.x) < 2 && Math.abs(t.y - c.y) < 2);
     }
-    const c = this.snap(world, build);
-    for (let oy = -1; oy <= 1; oy++) {
-      for (let ox = -1; ox <= 1; ox++) {
-        if (this.field.isWall(Math.floor(c.x) + ox, Math.floor(c.y) + oy)) return false;
-      }
-    }
-    if (this.turrets.some((t) => Math.hypot(t.x - c.x, t.y - c.y) < 2.4)) return false;
-    const b = this.field.base;
-    return Math.hypot(b.x - c.x, b.y - c.y) > 2.5;
+    if (this.atCap()) return false;
+    const { gx, gy } = this.latticeAt(world, TURRET_SIZE);
+    if (!this.field.isPlatform(gx, gy, TURRET_SIZE)) return false;   // turrets sit on rock
+    return !this.turrets.some((t) => Math.hypot(t.x - c.x, t.y - c.y) < 2.4);
   }
 
   // Returns null on success or a short reason to show the player.
   place(world, build) {
-    if (build.kind !== 'wall' && this.atCap()) return `turret limit reached (${this.maxBuilt})`;
+    if (this.nearPortal(this.snap(world, build))) return 'too close to the portal';
+    if (build.kind !== 'wall') {
+      const { gx, gy } = this.latticeAt(world, TURRET_SIZE);
+      if (!this.field.isPlatform(gx, gy, TURRET_SIZE)) return 'turrets are built on the rock';
+      if (this.atCap()) return 'out of turret slots';
+    }
     if (!this.valid(world, build)) return 'blocked';
     const c = this.snap(world, build);
 
     if (build.kind === 'wall') {
-      const { gx, gy } = this.rampartAt(world);
+      const { gx, gy } = this.latticeAt(world, RAMPART);
       this.field.setCells(gx, gy, RAMPART, true);
       this.field.bake();
       if (!this.field.reachable()) {
@@ -98,6 +152,8 @@ export class Build {
 
     this.turrets.push({
       id: nextId++,
+      level: 1,
+      baseCost: build.cost,
       x: c.x, y: c.y,
       type: build.type,
       range: build.range,
@@ -137,6 +193,7 @@ export class Build {
   }
 
   update(dt, time) {
+    for (const id in this.cooldowns) this.cooldowns[id] = Math.max(0, this.cooldowns[id] - dt);
     const weapons = [];
     this.segments.length = 0;
 
@@ -186,7 +243,10 @@ export class Build {
           // snapshot. The CPU never learns about individual orcs.
           const target = this.horde.densestNear(t.x, t.y, t.range);
           if (target && this.blasts.length < MAX_BLASTS) {
-            this.blasts.push({ x: target.x, y: target.y, radius: t.blast * 0.5, full: t.blast, dps: t.dps, life: BLAST_LIFE });
+            this.blasts.push({
+              x: target.x, y: target.y, radius: t.blast * 0.5, full: t.blast,
+              dps: t.dps, life: BLAST_LIFE, life0: BLAST_LIFE, hitsPerSec: t.hitsPerSec,
+            });
             t.timer = t.cooldown;
           } else {
             t.timer = 0.25;         // nothing worth shelling, check again shortly
@@ -198,12 +258,12 @@ export class Build {
     for (let i = this.blasts.length - 1; i >= 0; i--) {
       const b = this.blasts[i];
       b.life -= dt;
-      const k = 1 - Math.max(0, b.life) / BLAST_LIFE;
+      const k = 1 - Math.max(0, b.life) / (b.life0 ?? BLAST_LIFE);
       b.radius = b.full * (0.45 + 0.55 * k);
       if (b.life <= 0) this.blasts.splice(i, 1);
     }
 
     this.horde.setWeapons(weapons);
-    this.horde.setBlasts(this.blasts);
+    this.horde.setBlasts(this.blasts.map((b) => ({ ...b, cap: (b.hitsPerSec ?? 1e9) * dt })));
   }
 }

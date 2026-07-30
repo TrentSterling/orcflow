@@ -23,7 +23,7 @@ import {
 
 import {
   MAX_ORCS, SPAWN_BATCH, MAX_TURRETS, MAX_BLASTS, GRID_W, GRID_H,
-  DENS_W, DENS_H, DENS_SCALE, CORPSE_FADE, SEPARATION,
+  DENS_W, DENS_H, DENS_SCALE, CORPSE_FADE, REST_DENSITY, PRESSURE, VISCOSITY, BOUNTY_FLOOR,
 } from '../config.js';
 
 export class Horde {
@@ -49,17 +49,24 @@ export class Horde {
     const dat = instancedArray(MAX_ORCS, 'vec4');
     const att = instancedArray(MAX_ORCS, 'vec4');
     const dens = instancedArray(DENS_W * DENS_H, 'uint').toAtomic();
+    // Velocity sums per cell, fixed point with a +1000 bias per orc so the
+    // atomics stay unsigned. Averaging them gives the local stream direction.
+    const densVX = instancedArray(DENS_W * DENS_H, 'uint').toAtomic();
+    const densVY = instancedArray(DENS_W * DENS_H, 'uint').toAtomic();
     const cnt = instancedArray(4, 'uint').toAtomic(); // kills, leaks, gold, hits
     // Per-weapon hit budget, refilled every frame. Without it, area damage grows
     // with crowd density and a bigger horde just feeds the turrets.
-    const budget = instancedArray(MAX_TURRETS, 'uint').toAtomic();
-    this._buffers = { pos, dat, att, dens, cnt, budget };
+    // One slot per weapon shape and per blast, so shells and abilities are
+    // rate limited too. Blasts live at offset MAX_TURRETS.
+    const budget = instancedArray(MAX_TURRETS + MAX_BLASTS, 'uint').toAtomic();
+    this._buffers = { pos, dat, att, dens, densVX, densVY, cnt, budget };
 
     // ---- uniforms ----------------------------------------------------------
     const u = {
       dt: uniform(0),
       time: uniform(1),               // starts at 1 so "deathTime 0" means alive
-      sep: uniform(SEPARATION),
+      pressure: uniform(PRESSURE),
+      viscosity: uniform(VISCOSITY),
       basePos: uniform(new THREE.Vector2(basePos.x, basePos.y)),
       turretCount: uniform(0, 'int'),
       blastCount: uniform(0, 'int'),
@@ -81,6 +88,8 @@ export class Horde {
     // x = how many orcs this weapon may damage this frame
     this.turretC = uniformArray(Array.from({ length: MAX_TURRETS }, () => new THREE.Vector4()), 'vec4');
     this.blastArr = uniformArray(Array.from({ length: MAX_BLASTS }, () => new THREE.Vector4()), 'vec4');
+    // x = hits this blast may land this frame
+    this.blastCaps = uniformArray(Array.from({ length: MAX_BLASTS }, () => new THREE.Vector4()), 'vec4');
 
     // ---- shared shader helpers --------------------------------------------
     const flowTex = texture(flowTexture);
@@ -105,6 +114,14 @@ export class Horde {
       );
     };
 
+    // Normalised distance to base, straight out of the flow texture's alpha.
+    // 1 at the portal, 0 at the base.
+    const pathDist = (q) => {
+      const cx = clamp(q.x, float(0), gw.sub(1));
+      const cy = clamp(q.y, float(0), gh.sub(1));
+      return textureLoad(flowTex, ivec2(cx, cy)).w;
+    };
+
     // Exact per-cell rock test, no interpolation.
     const isRock = (q) => {
       const cx = clamp(q.x, float(0), gw.sub(1));
@@ -115,20 +132,32 @@ export class Horde {
     // Crowd separation from the coarse density grid: push down the gradient of
     // "how many neighbours are over there". Cheap stand-in for pair collisions
     // and it produces the nose-to-tail river look.
-    const crowdPush = (p) => {
+    // Fluid step from the density grid: a pressure gradient plus the local mean
+    // velocity. Pressure only builds past a resting density, so the crowd packs
+    // shoulder to shoulder and only spreads where it is actually squeezed, and
+    // the velocity term makes neighbours agree, which is what reads as flow.
+    const crowdForces = (p) => {
       const cx = int(clamp(p.x.mul(DENS_SCALE), float(1), float(DENS_W - 2))).toVar();
       const cy = int(clamp(p.y.mul(DENS_SCALE), float(1), float(DENS_H - 2))).toVar();
-      const acc = vec2(0).toVar();
-      const total = float(0).toVar();
+      const push = vec2(0).toVar();
+      const here = int(0).toVar();
       for (let oy = -1; oy <= 1; oy++) {
         for (let ox = -1; ox <= 1; ox++) {
           const idx = cy.add(int(oy)).mul(int(DENS_W)).add(cx.add(int(ox)));
+          if (ox === 0 && oy === 0) { here.assign(idx); continue; }
           const n = float(atomicLoad(dens.element(idx))).toVar();
-          total.addAssign(n);
-          if (ox !== 0 || oy !== 0) acc.subAssign(vec2(ox, oy).mul(n));
+          const press = max(n.sub(float(REST_DENSITY)), float(0)).toVar();
+          push.subAssign(vec2(ox, oy).mul(press));
         }
       }
-      return acc.div(total.add(1));
+      const n0 = float(atomicLoad(dens.element(here))).toVar();
+      const sx = float(atomicLoad(densVX.element(here))).toVar();
+      const sy = float(atomicLoad(densVY.element(here))).toVar();
+      const mean = vec2(
+        sx.sub(n0.mul(1000)).div(max(n0, float(1))).div(100),
+        sy.sub(n0.mul(1000)).div(max(n0, float(1))).div(100),
+      ).toVar();
+      return { push, mean };
     };
 
     // ---- pass: init --------------------------------------------------------
@@ -156,10 +185,14 @@ export class Horde {
     // ---- pass: scatter -----------------------------------------------------
     this.scatterPass = Fn(() => {
       If(dat.element(instanceIndex).x.greaterThan(0), () => {
-        const p = pos.element(instanceIndex).xy.toVar();
+        const P = pos.element(instanceIndex).toVar();
+        const p = P.xy.toVar();
         const cx = int(clamp(p.x.mul(DENS_SCALE), float(0), float(DENS_W - 1)));
         const cy = int(clamp(p.y.mul(DENS_SCALE), float(0), float(DENS_H - 1)));
-        atomicAdd(dens.element(cy.mul(int(DENS_W)).add(cx)), uint(1));
+        const cell = cy.mul(int(DENS_W)).add(cx).toVar();
+        atomicAdd(dens.element(cell), uint(1));
+        atomicAdd(densVX.element(cell), uint(P.z.mul(100).add(1000)));
+        atomicAdd(densVY.element(cell), uint(P.w.mul(100).add(1000)));
       });
     })().compute(MAX_ORCS);
 
@@ -187,7 +220,9 @@ export class Horde {
 
         const want = dir.mul(maxSpeed);
         v.addAssign(want.sub(v).mul(min(u.dt.mul(7), 1)));
-        v.addAssign(crowdPush(p).mul(u.sep.mul(maxSpeed).mul(u.dt)));
+        const crowd = crowdForces(p);
+        v.addAssign(crowd.mean.sub(v).mul(min(u.viscosity.mul(u.dt), 1)));
+        v.addAssign(crowd.push.mul(u.pressure.mul(u.dt)));
 
         const sp = length(v).add(1e-5).toVar();
         If(sp.greaterThan(maxSpeed), () => { v.mulAssign(maxSpeed.div(sp)); });
@@ -234,7 +269,10 @@ export class Horde {
         });
         Loop(u.blastCount, ({ i }) => {
           const B = this.blastArr.element(i).toVar();  // x, y, radius, dps
-          If(length(p.sub(B.xy)).lessThan(B.z), () => { dmg.addAssign(B.w); });
+          If(length(p.sub(B.xy)).lessThan(B.z), () => {
+            const slot = atomicAdd(this._buffers.budget.element(i.add(int(MAX_TURRETS))), uint(1));
+            If(float(slot).lessThan(this.blastCaps.element(i).x), () => { dmg.addAssign(B.w); });
+          });
         });
         If(dmg.greaterThan(0), () => {
           hp.subAssign(dmg.mul(u.dt));
@@ -253,7 +291,11 @@ export class Horde {
         If(hp.lessThanEqual(0).and(d.w.equal(0)), () => {
           d.w.assign(u.time);
           atomicAdd(cnt.element(0), uint(1));
-          atomicAdd(cnt.element(2), uint(A.y));
+          // Bounty by progress: killing it as it leaves the portal pays a
+          // fraction, killing it at the gate pays in full.
+          const progress = float(1).sub(pathDist(p)).toVar();
+          const worth = A.y.mul(float(BOUNTY_FLOOR).add(progress.mul(1 - BOUNTY_FLOOR)));
+          atomicAdd(cnt.element(2), uint(max(worth, 1)));
         });
 
         d.x.assign(max(hp, 0));
@@ -266,7 +308,9 @@ export class Horde {
     // ---- pass: clear density ----------------------------------------------
     this.clearPass = Fn(() => {
       atomicStore(dens.element(instanceIndex), uint(0));
-      If(instanceIndex.lessThan(uint(MAX_TURRETS)), () => {
+      atomicStore(densVX.element(instanceIndex), uint(0));
+      atomicStore(densVY.element(instanceIndex), uint(0));
+      If(instanceIndex.lessThan(uint(MAX_TURRETS + MAX_BLASTS)), () => {
         atomicStore(budget.element(instanceIndex), uint(0));
       });
     })().compute(DENS_W * DENS_H);
@@ -448,6 +492,7 @@ export class Horde {
     for (let i = 0; i < n; i++) {
       const b = list[i];
       this.blastArr.array[i].set(b.x, b.y, b.radius, b.dps);
+      this.blastCaps.array[i].set(b.cap ?? 1e9, 0, 0, 0);
     }
     this.u.blastCount.value = n;
   }

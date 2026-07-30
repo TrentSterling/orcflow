@@ -5,14 +5,16 @@
 import * as THREE from 'three/webgpu';
 import { SPRITE_PX } from './config.js';
 
+// Reference palette: orcs walk the dark trench floor, turrets are built on the
+// pale plateaus above. Everything else keys off these.
 export const PALETTE = {
-  dirt: '#ab7a3e',
-  dirtDark: '#96692f',
-  dirtLight: '#bd8b4c',
-  rock: '#543b25',
-  rockTop: '#755433',
-  rockEdge: '#33230f',
-  grass: '#4c6b26',
+  trench: '#7d4c26',
+  trenchDark: '#6b3f1d',
+  trenchLight: '#8c5931',
+  plateau: '#d2ab7d',
+  plateauLip: '#e6c69c',
+  plateauEdge: '#4a2d16',
+  scrub: '#5d6b2c',
   blood: '#5f1010',
   gold: '#e8c33c',
   steel: '#c9cdd4',
@@ -83,9 +85,9 @@ function drawGore(ctx, ox) {
 export function makeOrcAtlas() {
   const c = canvas(SPRITE_PX * 4, SPRITE_PX);
   const ctx = c.getContext('2d');
-  drawOrc(ctx, 0, '#6f9b3f', '#26331a', '#93bd5c');
-  drawOrc(ctx, SPRITE_PX, '#c9a24c', '#4a3512', '#e6c877');
-  drawOrc(ctx, SPRITE_PX * 2, '#9dc46a', '#2c3d1c', '#c3e394');
+  drawOrc(ctx, 0, '#4f7a2c', '#1d2a12', '#79a344');
+  drawOrc(ctx, SPRITE_PX, '#b58a3c', '#3d2b0e', '#d8b163');
+  drawOrc(ctx, SPRITE_PX * 2, '#7fa851', '#243318', '#a6cc78');
   drawGore(ctx, SPRITE_PX * 3);
   return pixelTexture(c);
 }

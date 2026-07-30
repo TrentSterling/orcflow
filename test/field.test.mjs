@@ -121,9 +121,17 @@ test('cost rises as you walk away from the base', () => {
   assert.ok(f.cost[far] > 5, 'portal should be a real distance from the base');
 });
 
-test('every map declares a wave target and a turret limit', () => {
+test('every map declares a wave target', () => {
   for (const map of MAPS) {
     assert.ok(Number.isInteger(map.waves) && map.waves > 0, `${map.name}: no wave target`);
-    assert.ok(Number.isInteger(map.built) && map.built > 0, `${map.name}: no turret limit`);
+  }
+});
+
+test('turret platforms are rock, never walkable ground', () => {
+  for (const map of MAPS) {
+    const f = new Field(map);
+    assert.ok(f.isPlatform(0, 0, 2), `${map.name}: the border ring should be buildable rock`);
+    const bx = Math.floor(f.base.x), by = Math.floor(f.base.y);
+    assert.equal(f.isPlatform(bx, by, 2), false, `${map.name}: open ground must not be a platform`);
   }
 });

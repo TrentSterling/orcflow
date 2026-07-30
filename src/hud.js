@@ -1,7 +1,7 @@
 // Thin DOM layer. The HUD only ever reads state that the CPU already has:
 // numbers that came back from an async counter snapshot, never a GPU query.
 
-import { BUILDS } from './config.js';
+import { BUILDS, ABILITIES } from './config.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -23,6 +23,15 @@ export class Hud {
       el.className = 'slot';
       el.innerHTML = `<div class="k">${b.key}</div><div class="n">${b.name}</div><div class="c">${b.cost}g</div>`;
       el.addEventListener('click', () => onSelect(i));
+      this.el.bar.appendChild(el);
+      return el;
+    });
+
+    // ability slots live at the end of the hotbar
+    this.abilitySlots = ABILITIES.map((a) => {
+      const el = document.createElement('div');
+      el.className = 'slot ability';
+      el.innerHTML = `<div class="k">${a.key.toUpperCase()}</div><div class="n">${a.name}</div><div class="c">ready</div>`;
       this.el.bar.appendChild(el);
       return el;
     });
@@ -65,8 +74,7 @@ export class Hud {
     e.gold.textContent = fmt(s.gold);
     e.orcs.textContent = fmt(s.alive);
     e.kills.textContent = fmt(s.kills);
-    e.towers.textContent = `${s.towers}/${s.towerCap}`;
-    e.towers.style.color = s.towers >= s.towerCap ? '#e2564a' : '';
+    e.towers.textContent = String(s.towers);
 
     e.waveN.textContent = s.wave;
     e.waveS.textContent = s.waveText;
@@ -80,6 +88,14 @@ export class Hud {
     e.spawned.textContent = fmt(s.spawned);
     e.cap.textContent = s.recycling ? `${fmt(s.cap)} ↻` : fmt(s.cap);
     e.cap.title = s.recycling ? 'at capacity: new orcs overwrite the oldest slots' : '';
+
+    this.abilitySlots.forEach((el, i) => {
+      const cd = s.cooldowns?.[i] ?? 0;
+      el.classList.toggle('poor', cd > 0);
+      const c = el.querySelector('.c');
+      const text = cd > 0 ? `${cd.toFixed(0)}s` : 'ready';
+      if (c.textContent !== text) c.textContent = text;
+    });
 
     // Prices escalate per purchase, so the hotbar shows the live cost.
     this.slots.forEach((el, i) => {

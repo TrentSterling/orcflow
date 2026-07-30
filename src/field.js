@@ -129,6 +129,19 @@ export class Field {
     return { x: px, y: py, dist: d, axis: null };
   }
 
+  // Turrets are built ON the rock, on the plateaus above the trenches the orcs
+  // walk. Two consequences worth keeping: placement can never affect pathing, and
+  // a rampart is dual purpose, funnelling the horde and raising a new platform.
+  isPlatform(gx, gy, size) {
+    if (gx < 0 || gy < 0 || gx + size > this.w || gy + size > this.h) return false;
+    for (let oy = 0; oy < size; oy++) {
+      for (let ox = 0; ox < size; ox++) {
+        if (!this.walls[(gy + oy) * this.w + gx + ox]) return false;
+      }
+    }
+    return true;
+  }
+
   reachable() {
     return this.spawns.every((s) => Number.isFinite(this.cost[this.idx(s.x | 0, s.y | 0)]));
   }

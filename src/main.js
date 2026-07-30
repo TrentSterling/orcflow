@@ -17,7 +17,7 @@ import { Menu } from './menu.js';
 import { startAudio, resumeAudio, configureAudio, sfx } from './audio.js';
 import {
   GRID_W, GRID_H, MAX_ORCS, BUILDS, BASE_HP, START_GOLD, ORC_TYPES, PARAMS, SPAWN_BATCH,
-  DENS_W, DENS_H, DENS_SCALE,
+  DENS_W, DENS_H, DENS_SCALE, ABILITIES,
 } from './config.js';
 
 // No ?map= means the title screen: the game still boots and plays itself behind
@@ -58,7 +58,7 @@ if (!navigator.gpu) {
 
 const field = new Field(MAPS[mapIndex]);
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0d0906);
+scene.background = new THREE.Color(0x3a2413);
 
 const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 100);
 camera.position.set(GRID_W / 2, GRID_H / 2, 10);
@@ -89,11 +89,11 @@ await horde.init();
 scene.add(horde.mesh);
 
 const effects = new Effects(scene);
-const build = new Build(field, ground, horde, MAPS[mapIndex].built);
+const build = new Build(field, ground, horde);
 const waves = new Waves(field, horde);
 
 // A rebake rewrites field.flow in place, so the GPU just needs the upload flag.
-const refreshField = () => { flowTex.needsUpdate = true; };
+const refreshField = () => { flowTex.needsUpdate = true; ap.cells = null; };
 
 const menu = new Menu({
   onStart: (i) => { location.search = `?map=${i}`; },
@@ -188,8 +188,23 @@ renderer.domElement.addEventListener('pointerdown', (ev) => {
     return;
   }
   if (ev.button !== 0 || state.over) return;
-  const b = BUILDS[state.selected];
   const world = toWorld(ev);
+
+  // Clicking a turret upgrades it. At the build cap that is the only way to keep
+  // up with the wave curve, so it needs to be the obvious action.
+  const existing = build.turretAt(world);
+  if (existing) {
+    const up = build.upgradeCost(existing);
+    if (existing.level >= build.maxLevel()) { hud.toast('already max level'); sfx.denied(); return; }
+    if (state.gold < up) { hud.toast(`upgrade costs ${up}g`); sfx.denied(); return; }
+    build.upgrade(existing);
+    state.gold -= up;
+    sfx.place();
+    hud.toast(`upgraded to level ${existing.level}`);
+    return;
+  }
+
+  const b = BUILDS[state.selected];
   const price = build.costOf(b);
   if (state.gold < price) { hud.toast('not enough gold'); sfx.denied(); return; }
   const err = build.place(world, b);
@@ -218,7 +233,7 @@ addEventListener('keydown', (ev) => {
   if (i >= 0) { state.selected = i; return; }
   if (ev.code === 'Space') {
     ev.preventDefault();
-    if (waves.call()) hud.toast(`wave ${waves.wave}`);
+    callWave();
   } else if (ev.key === 'Escape') {
     if (MENU_MODE) return;
     state.paused = !state.paused;
@@ -226,6 +241,8 @@ addEventListener('keydown', (ev) => {
   } else if (ev.key === 'p' || ev.key === 'P') {
     state.paused = !state.paused;
     if (state.paused) menu.showPause(); else menu.hidePause();
+  } else if (ABILITIES.some((a) => a.key === ev.key.toLowerCase())) {
+    fireAbility(ABILITIES.find((a) => a.key === ev.key.toLowerCase()));
   } else if (ev.key === 'g' || ev.key === 'G') {
     if (state.sandbox) { state.sandbox = false; hud.toast('sandbox off'); }
     else { enterSandbox(); hud.toast('sandbox on: base invulnerable'); }
@@ -278,18 +295,52 @@ function flood(count = Math.floor(MAX_ORCS / 2)) {
   hud.toast(`flooding ${batches * SPAWN_BATCH} orcs`);
 }
 
+function callWave() {
+  const bonus = waves.rushBonus();
+  if (!waves.call()) return false;
+  if (bonus > 0) { state.gold += bonus; hud.toast(`wave ${waves.wave}  +${bonus}g rushed`); }
+  else hud.toast(`wave ${waves.wave}`);
+  return true;
+}
+
+// Abilities fire at the cursor, along the local flow so an airstrike lands down
+// the lane the horde is walking rather than across it.
+function fireAbility(a) {
+  const at = pointer.world;
+  if (!at || state.over || state.paused) return;
+  if (!build.abilityReady(a)) { hud.toast(`${a.name} on cooldown`); sfx.denied(); return; }
+  const cx = Math.max(0, Math.min(GRID_W - 1, Math.floor(at.x)));
+  const cy = Math.max(0, Math.min(GRID_H - 1, Math.floor(at.y)));
+  const o = (cy * GRID_W + cx) * 4;
+  const dir = { x: field.flow[o] / 255 * 2 - 1, y: field.flow[o + 1] / 255 * 2 - 1 };
+  build.fireAbility(a, at, dir);
+  sfx.blast();
+  hud.toast(a.name);
+}
+
 // ---- baseline bot -----------------------------------------------------------
 // Not a good player, a *consistent* one: greedy spend, defend nearest the base
 // first, spread outward. Enough to answer "is this map survivable at all".
 const ap = { timer: 0, cursor: 0, cells: null };
 
+// Candidate spots. Turrets go on rock, so the list is rock cells scored by the
+// cheapest path cost nearby: that is "how close is this platform to the route".
 function apCells() {
   if (ap.cells) return ap.cells;
   const cells = [];
-  for (let y = 1; y < GRID_H - 1; y++) {
-    for (let x = 1; x < GRID_W - 1; x++) {
-      const c = field.cost[field.idx(x, y)];
-      if (Number.isFinite(c) && !field.isWall(x, y)) cells.push({ x: x + 0.5, y: y + 0.5, c });
+  for (let y = 1; y < GRID_H - 1; y += 2) {
+    for (let x = 1; x < GRID_W - 1; x += 2) {
+      if (!field.isWall(x, y)) continue;
+      let near = Infinity;
+      for (let oy = -3; oy <= 3; oy++) {
+        for (let ox = -3; ox <= 3; ox++) {
+          const gx = Math.min(GRID_W - 1, Math.max(0, x + ox));
+          const gy = Math.min(GRID_H - 1, Math.max(0, y + oy));
+          const c = field.cost[field.idx(gx, gy)];
+          if (Number.isFinite(c) && c < near) near = c;
+        }
+      }
+      if (Number.isFinite(near)) cells.push({ x: x + 0.5, y: y + 0.5, c: near });
     }
   }
   cells.sort((a, b) => a.c - b.c);
@@ -297,8 +348,6 @@ function apCells() {
   return cells;
 }
 
-// Traffic at a spot, straight from the async density snapshot: the same
-// information a player gets by watching where the horde walks.
 function apTraffic(x, y) {
   const d = horde.density;
   if (!d || !d.length) return 0;
@@ -317,7 +366,16 @@ function apTraffic(x, y) {
 }
 
 function autoplay(dt) {
-  if (waves.state === 'idle') waves.call();
+  if (waves.state !== 'running') callWave();
+  // Abilities at density spikes, which is what they are for.
+  for (const a of ABILITIES) {
+    if (!build.abilityReady(a)) continue;
+    const t = horde.densestNear(field.base.x, field.base.y, 60);
+    if (t && t.count > (a.id === 'nuke' ? 40 : 14)) {
+      build.fireAbility(a, t, { x: 1, y: 0 });
+      break;
+    }
+  }
   ap.timer -= dt;
   if (ap.timer > 0) return;
   ap.timer = 0.4;
@@ -340,6 +398,19 @@ function autoplay(dt) {
     if (build.place(best, b)) continue;
     state.gold -= price;
     return;
+  }
+
+  // Nothing left to place: pour gold into the busiest turret instead.
+  let target = null, targetScore = -1;
+  for (const t of build.turrets) {
+    if (t.level >= build.maxLevel()) continue;
+    if (state.gold < build.upgradeCost(t)) continue;
+    const score = apTraffic(t.x, t.y) + 1 / (1 + t.level);
+    if (score > targetScore) { targetScore = score; target = t; }
+  }
+  if (target) {
+    state.gold -= build.upgradeCost(target);
+    build.upgrade(target);
   }
 }
 
@@ -477,6 +548,7 @@ function step(now) {
     recycling: horde.stats.recycling === true,
     costs: BUILDS.map((b) => build.costOf(b)),
     towers: build.turrets.length, towerCap: build.maxBuilt,
+    cooldowns: ABILITIES.map((a) => build.cooldowns[a.id] ?? 0),
   });
 }
 
@@ -506,7 +578,7 @@ function tick(dt) {
     }
 
     // Held every wave up to the target: that is a win.
-    if (!BENCH && !MENU_MODE && waves.wave >= TARGET_WAVES && waves.state === 'breather') endRun(true);
+    if (!BENCH && !MENU_MODE && waves.wave >= TARGET_WAVES && waves.state === 'build') endRun(true);
 
     // Audio is driven off deltas, never per orc: tens of thousands die per wave.
     const dk = horde.stats.kills - audioState.kills;
@@ -526,7 +598,7 @@ function waveText() {
   if (BENCH) return `ramp step ${bench.step}`;
   if (state.paused) return 'paused';
   if (waves.state === 'running') return `${waves.remaining} left to spawn`;
-  if (waves.state === 'breather') return `next in ${waves.timer.toFixed(1)}s (SPACE to rush)`;
+  if (waves.state === 'build') return `BUILD PHASE - SPACE for wave ${waves.wave + 1} (+${waves.rushBonus()}g)`;
   return 'press SPACE to begin';
 }
 

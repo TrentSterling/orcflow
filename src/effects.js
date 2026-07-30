@@ -6,7 +6,7 @@ import * as THREE from 'three/webgpu';
 import { texture, uv, vec2 } from 'three/tsl';
 import { makeTurretAtlas, makeGlow, makeBeam } from './art.js';
 
-const TURRET_SIZE = 3.2;
+const TURRET_SIZE = 2.7;
 // turret behaviour -> atlas tile (blades, emitter, emitter, mortar)
 const TILE_FOR_TYPE = [0, 1, 1, 2];
 
@@ -95,9 +95,9 @@ export class Effects {
       const mesh = this.#at(this.turretPool, ti, this.turretMats[tile]);
       mesh.material = this.turretMats[tile];
       mesh.position.set(t.x, t.y, 0.4);
-      // Blades are sized to their kill zone; the others are fixed sprites.
-      const size = t.type === 0 ? Math.max(TURRET_SIZE, t.range * 1.15) : TURRET_SIZE;
-      mesh.scale.set(size, size, 1);
+      // Every turret is the size of its platform; the kill zone is shown by the
+      // wash underneath instead of by inflating the sprite.
+      mesh.scale.set(TURRET_SIZE, TURRET_SIZE, 1);
       // blades spin, emitters point where they aim, mortars sit still
       mesh.rotation.z = t.type === 0 ? time * 5.5 : (t.type === 3 ? 0 : t.angle);
       ti++;

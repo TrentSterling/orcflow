@@ -26,12 +26,20 @@ moat in 2026? No. Finishing a game still is, so this one got finished.
 Four maps, each with its own wave target and turret limit. Hold every wave and the
 next map unlocks. Progress, best waves and settings persist in localStorage.
 
-| # | map | waves | towers | shape |
-|---|---|---|---|---|
-| 1 | THE FORK | 12 | 24 | two lanes around a central block |
-| 2 | THE SNAKE | 14 | 24 | one long serpentine corridor |
-| 3 | PILLARS | 13 | 38 | open field, pillar lattice |
-| 4 | CHICANE | 12 | 44 | staggered walls, wide pockets |
+| # | map | waves | shape |
+|---|---|---|---|
+| 1 | THE SIEVE | 13 | staggered pillar field, the horde braids through it |
+| 2 | THE FORK | 12 | two lanes around a central block |
+| 3 | THE SNAKE | 14 | one long serpentine corridor |
+| 4 | PILLARS | 13 | open bowl, pillar lattice |
+| 5 | CHICANE | 12 | staggered walls, wide pockets |
+
+**Turrets are built on the rock**, on the plateaus above the trenches the orcs
+walk. Placement can therefore never block a path, and a rampart does double duty:
+it funnels the horde *and* raises a new firing platform. Nothing may be built
+inside the ring around a portal, and a kill pays its full bounty at your doorstep
+but only a fraction at the portal, so camping the spawn is unprofitable rather
+than merely illegal.
 
 Five builds, and every copy you buy costs more than the last:
 
@@ -40,16 +48,26 @@ Five builds, and every copy you buy costs more than the last:
 - **BLADES** spinning disc, short range, cheap
 - **BEAM** locks onto the thickest crowd and holds there, carving a hole
 - **BOUNCE** zig-zag beam that reflects off rock, one damage segment per leg
-- **MORTAR** shells the thickest crowd, uncapped splash
+- **MORTAR** shells the thickest crowd
 
-Each weapon can only damage so many orcs per second. That budget is what makes a
-big enough horde walk straight through your line.
+Each weapon can only damage so many orcs per second, and `dps x hits/sec` is kept
+in the same ballpark across all four, so the choice is about *shape* rather than
+one weapon quietly doing all the work. That budget is also what makes a big enough
+horde walk straight through your line.
+
+**Click a turret to upgrade it.** Six levels, each 1.6x damage. Without upgrades
+player power is flat while wave demand compounds about 30% a wave, which turns
+every map into the same wall.
+
+**Q / E** fire an airstrike and a nuke on cooldown, for density spikes.
 
 ## Controls
 
 | | |
 |---|---|
 | `1` – `5` | rampart / blades / beam / bounce / mortar |
+| `Q` / `E` | airstrike / nuke |
+| click turret | upgrade it |
 | left click | place |
 | `SPACE` | call the next wave (rushes the breather) |
 | wheel / right-drag | zoom / pan |

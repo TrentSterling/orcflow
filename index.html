@@ -89,6 +89,8 @@
   .slot .k { font-size: 10px; color: var(--dim); }
   .slot .n { font-size: 12px; letter-spacing: 1px; }
   .slot .c { font-size: 11px; color: var(--gold); }
+  .slot.ability { border-color: #3d5570; background: rgba(20,34,50,0.9); }
+  .slot.ability .c { color: #9ec8e8; }
 
   #hint { position: absolute; bottom: 96px; left: 50%; transform: translateX(-50%); font-size: 11px; color: var(--dim); text-align: center; }
   #toast { position: absolute; top: 33%; left: 50%; transform: translateX(-50%); font-size: 16px; color: #ffd9a0; text-shadow: 0 2px 0 #000; opacity: 0; transition: opacity 200ms; }
@@ -219,7 +221,7 @@
     <div class="s" id="w-map"></div>
   </div>
 
-  <div id="hint">1-4 pick &middot; click place &middot; SPACE next wave &middot; wheel zoom &middot; right-drag pan &middot; M next map</div>
+  <div id="hint">1-5 build (turrets go on the rock) &middot; click a turret to upgrade &middot; Q/E abilities &middot; SPACE next wave &middot; wheel zoom &middot; right-drag pan &middot; ESC pause</div>
   <div id="bar" class="panel"></div>
   <div id="toast"></div>
 
