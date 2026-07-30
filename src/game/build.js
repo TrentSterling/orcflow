@@ -23,6 +23,7 @@ export class Build {
   constructor(field, ground, horde, onFieldChange = () => {}, maxBuilt = MAX_BUILT) {
     this.maxBuilt = maxBuilt;
     this.onFieldChange = onFieldChange;
+    this.onRampartLost = null;
     this.ramparts = [];
     this.chewTimer = 0;
     this.field = field;
@@ -190,6 +191,10 @@ export class Build {
       sweep: build.sweep ?? 0,
       dwell: build.dwell ?? 1.2,
       hitsPerSec: build.hitsPerSec ?? 1e6,
+      damage: build.damage ?? 0,
+      rpm: build.rpm ?? 0,
+      spread: build.spread ?? 0.1,
+      carry: 0,
       bounces: build.bounces ?? 0,
       blast: build.blast ?? 0,
       cooldown: build.cooldown ?? 1,
@@ -239,7 +244,28 @@ export class Build {
       this.field.bake();
       this.ground.rebuild();
       this.onFieldChange();
+      this.onRampartLost?.();
     }
+  }
+
+  // Machine guns: aim at the thickest crowd in range and emit rounds. Fractional
+  // rounds carry over so a 660 rpm gun is 11 a second, not 10 or 12.
+  #muzzles(dt) {
+    const out = [];
+    let damage = 0, spread = 0.1;
+    for (const t of this.turrets) {
+      if (t.type !== 4) continue;
+      const target = this.horde.densestNear(t.x, t.y, t.range);
+      if (target) t.angle = Math.atan2(target.y - t.y, target.x - t.x);
+      else { t.angle += 1.1 * dt; t.carry = 0; continue; }
+      t.carry += (t.rpm / 60) * dt;
+      const rounds = Math.floor(t.carry);
+      t.carry -= rounds;
+      damage = t.damage;
+      spread = t.spread;
+      if (rounds > 0 && out.length < 16) out.push({ x: t.x, y: t.y, angle: t.angle, rounds });
+    }
+    this.horde.setMuzzles(out, damage, spread);
   }
 
   update(dt, time) {
@@ -291,6 +317,8 @@ export class Build {
         continue;
       }
 
+      if (t.type === 4) continue;      // projectiles, handled by #muzzles
+
       if (t.type === 3) {
         t.timer -= dt;
         if (t.timer <= 0) {
@@ -318,6 +346,7 @@ export class Build {
       if (b.life <= 0) this.blasts.splice(i, 1);
     }
 
+    this.#muzzles(dt);
     this.horde.setWeapons(weapons);
     this.horde.setBlasts(this.blasts.map((b) => ({ ...b, cap: (b.hitsPerSec ?? 1e9) * dt })));
   }

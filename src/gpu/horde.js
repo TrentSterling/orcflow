@@ -25,6 +25,7 @@ import {
   MAX_ORCS, SPAWN_BATCH, MAX_TURRETS, MAX_BLASTS, GRID_W, GRID_H,
   DENS_W, DENS_H, DENS_SCALE, CORPSE_FADE, REST_DENSITY, PRESSURE, VISCOSITY, BOUNTY_FLOOR,
   BUCKET_K, ORC_RADIUS, RESTITUTION,
+  MAX_BULLETS, MAX_MUZZLES, MUZZLE_BURST, BULLET_SPEED, BULLET_LIFE,
 } from '../config.js';
 
 export class Horde {
@@ -37,8 +38,11 @@ export class Horde {
     this.stats = { kills: 0, leaks: 0, gold: 0, spawned: 0, alive: 0, recycled: 0 };
     this._lastCounters = [0, 0, 0, 0];
     this._countersInFlight = false;
+    this._generation = 0;
     this._densityInFlight = false;
     this.density = new Uint32Array(DENS_W * DENS_H);
+    // density summed per world cell: what the turret AI actually queries
+    this.coarse = new Uint32Array(GRID_W * GRID_H);
     this.pendingLeaks = 0;
     this.pendingGold = 0;
 
@@ -57,6 +61,9 @@ export class Horde {
     // Spatial hash: up to BUCKET_K orc indices per cell, written as index+1 so
     // zero means empty. Not atomic, only the counter is.
     const bucket = instancedArray(DENS_W * DENS_H * BUCKET_K, 'uint');
+    // One vec4 per bullet: x, y, angle, life. Speed and damage are uniforms, which
+    // is what keeps projectiles inside the 8-storage-buffer budget.
+    const bullets = instancedArray(MAX_BULLETS, 'vec4');
     // One buffer for every counter: kills, leaks, gold, spare, then a per-weapon
     // hit budget refilled each frame (weapons first, blasts after them). Without
     // that budget, area damage grows with crowd density and a bigger horde just
@@ -64,7 +71,7 @@ export class Horde {
     const CNT_BUDGET = 4;
     const cnt = instancedArray(CNT_BUDGET + MAX_TURRETS + MAX_BLASTS, 'uint').toAtomic();
     const budgetAt = (i) => i.add(int(CNT_BUDGET));
-    this._buffers = { pos, dat, att, dens, densV, bucket, cnt };
+    this._buffers = { pos, dat, att, dens, densV, bucket, bullets, cnt };
 
     // ---- uniforms ----------------------------------------------------------
     const u = {
@@ -85,6 +92,10 @@ export class Horde {
       spawnGold: uniform(1),
       spawnScale: uniform(0.6),
       spawnSeed: uniform(0, 'int'),
+      bulletCursor: uniform(0, 'int'),
+      bulletDamage: uniform(25),
+      bulletSpread: uniform(0.1),
+      muzzleCount: uniform(0, 'int'),
     };
     this.u = u;
 
@@ -95,6 +106,8 @@ export class Horde {
     this.blastArr = uniformArray(Array.from({ length: MAX_BLASTS }, () => new THREE.Vector4()), 'vec4');
     // x = hits this blast may land this frame
     this.blastCaps = uniformArray(Array.from({ length: MAX_BLASTS }, () => new THREE.Vector4()), 'vec4');
+    // x, y, angle, rounds to emit this frame
+    this.muzzles = uniformArray(Array.from({ length: MAX_MUZZLES }, () => new THREE.Vector4()), 'vec4');
 
     // ---- shared shader helpers --------------------------------------------
     const flowTex = texture(flowTexture);
@@ -167,6 +180,10 @@ export class Horde {
 
     // ---- pass: init --------------------------------------------------------
     // deathTime far in the past means "empty slot", so nothing renders at boot.
+    this.bulletClearPass = Fn(() => {
+      bullets.element(instanceIndex).assign(vec4(0, 0, 0, 0));
+    })().compute(MAX_BULLETS);
+
     this.initPass = Fn(() => {
       pos.element(instanceIndex).assign(vec4(0, 0, 0, 0));
       dat.element(instanceIndex).assign(vec4(0, 0, 0, -1000));
@@ -337,24 +354,103 @@ export class Horde {
           atomicAdd(cnt.element(1), uint(1));
         });
 
-        // ---- died to weapons. deathTime is still 0 only if the leak branch
-        // above did not already claim this orc, so nothing is counted twice.
-        If(hp.lessThanEqual(0).and(d.w.equal(0)), () => {
-          d.w.assign(u.time);
-          atomicAdd(cnt.element(0), uint(1));
-          // Bounty by progress: killing it as it leaves the portal pays a
-          // fraction, killing it at the gate pays in full.
-          const progress = float(1).sub(pathDist(p)).toVar();
-          const worth = A.y.mul(float(BOUNTY_FLOOR).add(progress.mul(1 - BOUNTY_FLOOR)));
-          atomicAdd(cnt.element(2), uint(max(worth, 1)));
-        });
-
         d.x.assign(max(hp, 0));
-        dat.element(instanceIndex).assign(d);
         att.element(instanceIndex).assign(A);
         pos.element(instanceIndex).assign(vec4(p, v));
       });
+
+      // Death accounting sits OUTSIDE the alive branch on purpose. Bullets write
+      // health directly, so an orc can arrive here already at zero without the
+      // block above ever running; when the check lived inside it, those orcs
+      // vanished silently with no kill, no bounty and no corpse.
+      If(d.x.lessThanEqual(0).and(d.w.equal(0)), () => {
+        d.w.assign(u.time);
+        atomicAdd(cnt.element(0), uint(1));
+        // Bounty by progress: killed leaving the portal pays a fraction, killed
+        // at the gate pays in full.
+        const here = pos.element(instanceIndex).xy.toVar();
+        const progress = float(1).sub(pathDist(here)).toVar();
+        const worth = att.element(instanceIndex).y
+          .mul(float(BOUNTY_FLOOR).add(progress.mul(1 - BOUNTY_FLOOR)));
+        atomicAdd(cnt.element(2), uint(max(worth, 1)));
+      });
+      dat.element(instanceIndex).assign(d);
     })().compute(MAX_ORCS);
+
+    // ---- pass: bullet spawn ------------------------------------------------
+    // Thread t maps to muzzle t/BURST, round t%BURST. Bounded, and the ring
+    // cursor means no free-list bookkeeping.
+    this.bulletSpawnPass = Fn(() => {
+      const t = int(instanceIndex).toVar();
+      const m = t.div(int(MUZZLE_BURST)).toVar();
+      const k = t.mod(int(MUZZLE_BURST)).toVar();
+      If(m.lessThan(u.muzzleCount), () => {
+        const M = this.muzzles.element(m).toVar();       // x, y, angle, rounds
+        If(float(k).lessThan(M.w), () => {
+          const slot = u.bulletCursor.add(t).mod(int(MAX_BULLETS)).toVar();
+          const r1 = hash(instanceIndex.add(uint(u.spawnSeed))).sub(0.5).toVar();
+          const jitter = r1.mul(u.bulletSpread);
+          // start at the muzzle, clear of the platform the gun stands on
+          const aim = M.z.add(jitter).toVar();
+          const muzzle = M.xy.add(vec2(cos(aim), sin(aim)).mul(1.7)).toVar();
+          bullets.element(slot).assign(vec4(muzzle, aim, float(BULLET_LIFE)));
+        });
+      });
+    })().compute(MAX_MUZZLES * MUZZLE_BURST);
+
+    // ---- pass: bullets ----------------------------------------------------
+    // Each round steps forward, samples four points along its path so it cannot
+    // tunnel through a crowd, and dies on the first orc it touches. Damage is
+    // written straight into the orc's health; the sim pass notices the death on
+    // its next tick and does the counting.
+    this.bulletPass = Fn(() => {
+      const B = bullets.element(instanceIndex).toVar();
+      If(B.w.greaterThan(0), () => {
+        const dir = vec2(cos(B.z), sin(B.z)).toVar();
+        const p0 = B.xy.toVar();
+        const p1 = p0.add(dir.mul(float(BULLET_SPEED).mul(u.dt))).toVar();
+        const life = B.w.sub(u.dt).toVar();
+
+        // Guns stand on rock, so a round is born inside solid geometry. Comparing
+        // both ends means it only dies on rock it has actually flown into: while
+        // still inside its own platform, p0 is rock and nothing happens. No extra
+        // per-bullet state needed, which matters when a bullet is one vec4.
+        If(isRock(p0).not().and(isRock(p1)), () => { life.assign(0); });
+
+        const hit = float(0).toVar();
+        for (let step = 0; step < 4; step++) {
+          const sp = mix(p0, p1, float((step + 0.5) / 4)).toVar();
+          const cx = int(clamp(sp.x.mul(DENS_SCALE), float(0), float(DENS_W - 1))).toVar();
+          const cy = int(clamp(sp.y.mul(DENS_SCALE), float(0), float(DENS_H - 1))).toVar();
+          const cell = cy.mul(int(DENS_W)).add(cx).toVar();
+          for (let k = 0; k < BUCKET_K; k++) {
+            const raw = bucket.element(cell.mul(int(BUCKET_K)).add(int(k))).toVar();
+            If(hit.lessThan(0.5).and(raw.greaterThan(uint(0))), () => {
+              const other = raw.sub(uint(1)).toVar();
+              const target = dat.element(other).toVar();
+              If(target.x.greaterThan(0), () => {
+                const q = pos.element(other).xy.toVar();
+                If(length(sp.sub(q)).lessThan(float(ORC_RADIUS * 2.2)), () => {
+                  // Read, modify, write the whole vec4: assigning a single
+                  // component straight into a storage element does not generate a
+                  // write, which is why the first version of this did no damage.
+                  target.x.assign(max(target.x.sub(u.bulletDamage), float(0)));
+                  dat.element(other).assign(target);
+                  const A2 = att.element(other).toVar();
+                  A2.z.assign(u.time);                      // hit flash
+                  att.element(other).assign(A2);
+                  hit.assign(1);
+                  atomicAdd(cnt.element(3), uint(1));       // bullet hits, for the HUD
+                });
+              });
+            });
+          }
+        }
+
+        If(hit.greaterThan(0.5), () => { life.assign(0); });
+        bullets.element(instanceIndex).assign(vec4(p1, B.z, life));
+      });
+    })().compute(MAX_BULLETS);
 
     // ---- pass: clear density ----------------------------------------------
     this.clearPass = Fn(() => {
@@ -420,16 +516,67 @@ export class Horde {
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 2;
 
+    // ---- bullet render: tiny additive tracers, positions read straight from the
+    // same buffer the compute pass writes.
+    const bGeo = new THREE.InstancedBufferGeometry();
+    bGeo.setAttribute('position', src.getAttribute('position'));
+    bGeo.setAttribute('uv', src.getAttribute('uv'));
+    bGeo.setIndex(src.getIndex());
+    bGeo.instanceCount = MAX_BULLETS;
+
+    const bA = bullets.toAttribute();
+    const bAlive = step(0.001, bA.w);
+    const bMat = new THREE.MeshBasicNodeMaterial();
+    bMat.positionNode = vec3(
+      bA.xy.add(positionGeometry.xy.mul(float(0.42).mul(bAlive))),
+      0.55,
+    );
+    // hot core fading to orange, and a stretch along travel would need the angle,
+    // which the shader has: a round tracer reads fine at this size.
+    const bd = length(uv().sub(vec2(0.5)));
+    const bGlow = clamp(float(1).sub(bd.mul(2.2)), 0, 1);
+    bMat.colorNode = vec3(bGlow.mul(1.6), bGlow.mul(1.25), bGlow.mul(0.55));
+    bMat.opacityNode = bGlow.mul(bAlive);
+    bMat.transparent = true;
+    bMat.depthWrite = false;
+    bMat.blending = THREE.AdditiveBlending;
+
+    this.bulletMesh = new THREE.Mesh(bGeo, bMat);
+    this.bulletMesh.frustumCulled = false;
+    this.bulletMesh.renderOrder = 3;
+
     this._spawnQueue = [];
     this._seed = 1;
   }
 
   async init() {
     await this.renderer.computeAsync(this.initPass);
+    await this.renderer.computeAsync(this.bulletClearPass);
+  }
+
+  // Muzzle events for this frame: {x, y, angle, rounds}. Rounds are clamped to
+  // MUZZLE_BURST because the spawn dispatch is a fixed size.
+  setMuzzles(list, damage, spread) {
+    const n = Math.min(list.length, MAX_MUZZLES);
+    let total = 0;
+    for (let i = 0; i < n; i++) {
+      const m = list[i];
+      const rounds = Math.min(MUZZLE_BURST, Math.max(0, m.rounds));
+      this.muzzles.array[i].set(m.x, m.y, m.angle, rounds);
+      total += rounds;
+    }
+    this.u.muzzleCount.value = n;
+    this.u.bulletDamage.value = damage;
+    this.u.bulletSpread.value = spread;
+    this.u.bulletCursor.value = this._bulletCursor ?? 0;
+    this._muzzleCount = n;
+    this._bulletCursor = ((this._bulletCursor ?? 0) + MAX_MUZZLES * MUZZLE_BURST) % MAX_BULLETS;
+    return total;
   }
 
   // Full wipe for a restart: every slot emptied, every counter zeroed.
   async reset() {
+    this._generation++;                 // discard any readback still in flight
     this.cursor = 0;
     this._spawnQueue.length = 0;
     this.stats = { kills: 0, leaks: 0, gold: 0, spawned: 0, alive: 0, recycled: 0, recycling: false };
@@ -440,8 +587,12 @@ export class Horde {
     this.u.turretCount.value = 0;
     this.u.blastCount.value = 0;
     this.initPass.count = MAX_ORCS;
+    this._muzzleCount = 0;
+    this._bulletCursor = 0;
+    this.u.muzzleCount.value = 0;
     await this.renderer.computeAsync(this.counterResetPass);
     await this.renderer.computeAsync(this.initPass);
+    await this.renderer.computeAsync(this.bulletClearPass);
   }
 
   // Queued rather than dispatched immediately so a wave can ask for several
@@ -488,6 +639,9 @@ export class Horde {
       this.simPass.count = used;
       renderer.compute(this.scatterPass);
       renderer.compute(this.simPass);
+      // bullets after scatter, so the hash they test against is this frame's
+      if (this._muzzleCount > 0) renderer.compute(this.bulletSpawnPass);
+      renderer.compute(this.bulletPass);
       // Density snapshot is grabbed here, before the clear pass wipes it.
       this._pollDensity();
       renderer.compute(this.clearPass);
@@ -499,7 +653,9 @@ export class Horde {
   _pollCounters() {
     if (this._countersInFlight) return;
     this._countersInFlight = true;
+    const gen = this._generation;
     this.renderer.getArrayBufferAsync(this._buffers.cnt.value).then((buf) => {
+      if (gen !== this._generation) { this._countersInFlight = false; return; }
       const c = new Uint32Array(buf);
       const dKills = c[0] - this._lastCounters[0];
       const dLeaks = c[1] - this._lastCounters[1];
@@ -508,66 +664,103 @@ export class Horde {
       this.stats.kills = c[0];
       this.stats.leaks = c[1];
       this.stats.gold = c[2];
+      this.stats.hits = c[3];
       this.pendingGold += dGold;
       this.pendingLeaks += dLeaks;
       // Orcs overwritten by the spawn ring never report a death, so the derived
       // headcount would drift above capacity. Clamp it.
       this.stats.recycling = this.stats.spawned > this.capacity;
-      this.stats.alive = Math.min(this.capacity, Math.max(0, this.stats.spawned - c[0] - c[1]));
+      // alive comes from the density sum in _pollDensity, which is exact.
       this._countersInFlight = false;
-    }).catch(() => { this._countersInFlight = false; });
+    this._generation = 0;
+    }).catch((err) => {
+      this._countersInFlight = false;
+      if (!this._loggedCounterError) {
+        this._loggedCounterError = true;
+        console.error('[horde] counter readback failed:', err);
+      }
+    });
   }
 
   _pollDensity() {
     if (this._densityInFlight) return;
     if ((this._densityTick = (this._densityTick ?? 0) + 1) % 10 !== 0) return;
     this._densityInFlight = true;
+    const gen = this._generation;
+    // No reuse target here: that argument wants a three.js ReadbackBuffer, and
+    // passing a plain ArrayBuffer made the readback throw into the catch below,
+    // which silently blinded every turret that aims at the crowd.
     this.renderer.getArrayBufferAsync(this._buffers.dens.value).then((buf) => {
+      if (gen !== this._generation) { this._densityInFlight = false; return; }
       this.density = new Uint32Array(buf);
+      // Every living orc scatters exactly once, so this sum is the exact head
+      // count. The derived spawned-minus-kills estimate drifts upward once the
+      // spawn ring starts overwriting live orcs.
+      // One pass builds both the exact head count and a coarse per-world-cell
+      // map. The fine grid is now about one orc per cell, so anything asking
+      // "where is the crowd" has to read a neighbourhood, not a cell.
+      let sum = 0;
+      const coarse = this.coarse;
+      coarse.fill(0);
+      for (let cy = 0; cy < DENS_H; cy++) {
+        const row = cy * DENS_W;
+        const wy = (cy / DENS_SCALE) | 0;
+        for (let cx = 0; cx < DENS_W; cx++) {
+          const n = this.density[row + cx];
+          if (n === 0) continue;
+          sum += n;
+          coarse[wy * GRID_W + ((cx / DENS_SCALE) | 0)] += n;
+        }
+      }
+      this.stats.alive = sum;
       this._densityInFlight = false;
-    }).catch(() => { this._densityInFlight = false; });
+    }).catch((err) => {
+      this._densityInFlight = false;
+      if (!this._loggedDensityError) {
+        this._loggedDensityError = true;
+        console.error('[horde] density readback failed, crowd aiming is blind:', err);
+      }
+    });
   }
 
   // How many orcs are within `r` world units of a point, from the async snapshot.
   crowdAround(x, y, r) {
-    const d = this.density;
-    if (!d || !d.length) return 0;
-    const rc = Math.ceil(r * DENS_SCALE);
-    const cx = Math.round(x * DENS_SCALE), cy = Math.round(y * DENS_SCALE);
+    const c = this.coarse;
+    const rc = Math.ceil(r);
+    const cx = Math.round(x), cy = Math.round(y);
     let sum = 0;
     for (let oy = -rc; oy <= rc; oy++) {
       const gy = cy + oy;
-      if (gy < 0 || gy >= DENS_H) continue;
+      if (gy < 0 || gy >= GRID_H) continue;
       for (let ox = -rc; ox <= rc; ox++) {
         const gx = cx + ox;
-        if (gx < 0 || gx >= DENS_W) continue;
-        sum += d[gy * DENS_W + gx];
+        if (gx < 0 || gx >= GRID_W) continue;
+        sum += c[gy * GRID_W + gx];
       }
     }
     return sum;
   }
 
-  // Densest density cell within range of a point, in world units. Mortars use
-  // this instead of any per-orc knowledge.
+  // Thickest part of the crowd within range, in world units, read off the coarse
+  // per-world-cell map. Beams, mortars and machine guns all aim with this.
   densestNear(x, y, range) {
-    const d = this.density;
-    if (!d || !d.length) return null;
-    const r = Math.ceil(range * DENS_SCALE);
-    const cx = Math.round(x * DENS_SCALE), cy = Math.round(y * DENS_SCALE);
+    const c = this.coarse;
+    const r = Math.ceil(range);
+    const cx = Math.round(x), cy = Math.round(y);
     let best = 0, bx = 0, by = 0;
-    for (let oy = -r; oy <= r; oy += 2) {
+    for (let oy = -r; oy <= r; oy++) {
       const gy = cy + oy;
-      if (gy < 0 || gy >= DENS_H) continue;
-      for (let ox = -r; ox <= r; ox += 2) {
+      if (gy < 1 || gy >= GRID_H - 1) continue;
+      for (let ox = -r; ox <= r; ox++) {
         const gx = cx + ox;
-        if (gx < 0 || gx >= DENS_W) continue;
+        if (gx < 1 || gx >= GRID_W - 1) continue;
         if (ox * ox + oy * oy > r * r) continue;
-        const n = d[gy * DENS_W + gx];
+        const n = c[gy * GRID_W + gx];
         if (n > best) { best = n; bx = gx; by = gy; }
       }
     }
     if (best < 2) return null;
-    return { x: bx / DENS_SCALE, y: by / DENS_SCALE, count: best };
+    return { x: bx + 0.5, y: by + 0.5, count: best };
   }
 
   takeGold() { const g = this.pendingGold; this.pendingGold = 0; return g; }

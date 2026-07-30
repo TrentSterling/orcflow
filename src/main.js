@@ -31,7 +31,7 @@ const AUTOPLAY_PARAM = PARAMS.get('autoplay') === '1';
 const isAutoplay = () => AUTOPLAY_PARAM || attract;
 const SPEED_PARAM = Math.max(0, Math.min(16, Number(PARAMS.get('speed')) || 0));
 // Fast forward is a real feature, not just a test-harness knob.
-let simSpeed = SPEED_PARAM || save.settings.speed || 1;
+let simSpeed = Math.max(1, Math.min(16, SPEED_PARAM || save.settings.speed || 1));
 const WAVES_PARAM = Number(PARAMS.get('waves')) || 0;
 let TARGET_WAVES = Math.max(1, WAVES_PARAM || MAPS[mapIndex].waves || 12);
 
@@ -92,9 +92,11 @@ scene.add(ground.mesh);
 const horde = new Horde(renderer, flowTex, makeOrcAtlas(), field.base);
 await horde.init();
 scene.add(horde.mesh);
+scene.add(horde.bulletMesh);
 
 const effects = new Effects(scene);
 const build = new Build(field, ground, horde, () => refreshField());
+build.onRampartLost = () => { hud.toast('a rampart has fallen'); sfx.leak(); };
 const waves = new Waves(field, horde);
 
 // A rebake rewrites field.flow in place, so the GPU just needs the upload flag.
@@ -173,13 +175,16 @@ function endRun(won) {
   if (state.over) return;
   state.over = true;
   state.won = won;
-  if (!attract && !BENCH) {
+  // Sandbox makes the base invulnerable, so a sandboxed run must never count.
+  // Otherwise G is a one-key "clear every map" button.
+  if (!attract && !BENCH && !state.sandbox) {
     save.recordRun({
       map: mapIndex, wave: waves.wave, won, target: TARGET_WAVES,
       kills: horde.stats.kills, mapCount: MAPS.length,
     });
   }
   if (won) sfx.win(); else sfx.lose();
+  if (state.sandbox) hud.toast('sandbox run: not recorded');
   const kills = horde.stats.kills.toLocaleString();
   hud.gameOver(
     won ? `held all ${TARGET_WAVES} waves - ${kills} orcs killed` : `wave ${waves.wave} of ${TARGET_WAVES} - ${kills} orcs killed`,
@@ -504,6 +509,7 @@ function autoplay(dt) {
 // ?perf=1        log a frame-time distribution every 60 frames
 const bench = { next: 2, step: 0, rate: Number(PARAMS.get('rate') ?? 4000) };
 
+if (PARAMS.get('gold')) state.gold = Number(PARAMS.get('gold'));
 if (PARAMS.get('autobuild') === '1') autobuild();
 if (PARAMS.get('ramparts')) dropRamparts(Number(PARAMS.get('ramparts')));
 
@@ -528,19 +534,28 @@ function dropRamparts(n) {
 if (PARAMS.get('spawn')) flood(Number(PARAMS.get('spawn')));
 if (PARAMS.get('wave') === '1') waves.call();   // start the real game loop headlessly
 
-// Drop one of each turret along the route, using the same platform list the bot
-// uses: turrets go on rock, so the old open-ground list placed nothing.
+// Drop turrets along the route on the platform list the bot uses. ?only=<id>
+// restricts it to one weapon, which is how a single weapon gets tested in
+// isolation, and ?gold=N gives it something to spend.
 function autobuild() {
+  const only = PARAMS.get('only');
+  const defs = BUILDS.filter((b) => b.kind === 'turret' && (!only || b.id === only));
   const cells = apCells();
-  for (const [frac, def] of [[0.15, BUILDS[1]], [0.35, BUILDS[2]], [0.55, BUILDS[3]], [0.75, BUILDS[4]]]) {
-    for (let i = Math.floor(cells.length * frac); i < cells.length; i++) {
-      const price = build.costOf(def);
-      if (state.gold < price) break;
-      if (build.place(cells[i], def)) continue;
-      state.gold -= price;
-      break;
+  let placed = 0;
+  for (let pass = 0; pass < 12; pass++) {
+    for (const def of defs) {
+      const frac = (pass * 0.07 + defs.indexOf(def) * 0.17) % 0.9;
+      for (let i = Math.floor(cells.length * frac); i < cells.length; i++) {
+        const price = build.costOf(def);
+        if (state.gold < price) break;
+        if (build.place(cells[i], def)) continue;
+        state.gold -= price;
+        placed++;
+        break;
+      }
     }
   }
+  console.log(`[autobuild] placed ${placed}${only ? ` (${only} only)` : ''}`);
   refreshField();
 }
 
@@ -557,6 +572,8 @@ globalThis.__orcflow = () => ({
   frames, time: state.time, alive: horde.stats.alive, spawned: horde.stats.spawned,
   kills: horde.stats.kills, leaks: horde.stats.leaks, gold: state.gold,
   turrets: build.turrets.length, blasts: build.blasts.length,
+  muzzles: horde._muzzleCount ?? 0, bulletCursor: horde._bulletCursor ?? 0,
+  bulletHits: horde.stats.hits ?? 0,
   hp: state.hp, over: state.over, won: state.won, sandbox: state.sandbox,
   wave: waves.wave, waveState: waves.state, target: TARGET_WAVES, speed: simSpeed,
   queued: horde._spawnQueue.length, lastError: globalThis.__orcflowError ?? null,

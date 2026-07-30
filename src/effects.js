@@ -8,7 +8,7 @@ import { makeTurretAtlas, makeGlow, makeBeam, makeLevelStrip } from './art.js';
 
 const TURRET_SIZE = 2.7;
 // turret behaviour -> atlas tile (blades, emitter, emitter, mortar)
-const TILE_FOR_TYPE = [0, 1, 1, 2];
+const TILE_FOR_TYPE = [0, 1, 1, 2, 1];   // 4 = mg nest, reuses the emitter tile
 
 export class Effects {
   constructor(scene) {

@@ -35,6 +35,15 @@ export const SPAWN_BATCH = 2048;         // hard cap on orcs spawned in one fram
 // than a turret budget.
 export const MAX_TURRETS = 256;
 export const MAX_BLASTS = 48;
+
+// Individual projectiles, on the GPU like everything else. One vec4 per bullet
+// (x, y, angle, life) keeps this inside the 8-storage-buffer limit, with speed and
+// damage as uniforms since there is one bullet type.
+export const MAX_BULLETS = 60000;
+export const MAX_MUZZLES = 16;           // guns that can fire in one frame
+export const MUZZLE_BURST = 12;          // bullets one gun can emit per frame
+export const BULLET_SPEED = 46;
+export const BULLET_LIFE = 1.1;
 // Corpses ARE the blood system, so they linger. A slot only comes back when the
 // spawn ring wraps around to it anyway, and at half a million slots that is a
 // very long time.
@@ -113,9 +122,12 @@ export const BUILDS = [
 // instead of one weapon quietly doing all the work: the beam used to be worth
 // nine blades.
   { key: '2', id: 'blades', name: 'BLADES',  cost: 60,  kind: 'turret', type: 0, range: 5.5,  dps: 95,  hitsPerSec: 300, limit: 10 },
-  { key: '3', id: 'beam',   name: 'BEAM',    cost: 170, kind: 'turret', type: 1, range: 26.0, dps: 165, width: 1.4, dwell: 1.5, hitsPerSec: 240, limit: 5 },
-  { key: '4', id: 'bounce', name: 'BOUNCE',  cost: 210, kind: 'turret', type: 2, range: 40.0, dps: 200, width: 1.0, bounces: 4, sweep: 0.5, hitsPerSec: 230, limit: 5 },
-  { key: '5', id: 'mortar', name: 'MORTAR',  cost: 240, kind: 'turret', type: 3, range: 30.0, dps: 900, blast: 4.6, cooldown: 2.4, hitsPerSec: 300, limit: 5 },
+  // type 4: real projectiles. Each round is an entity that flies, can miss, and
+  // dies on the first orc it touches.
+  { key: '3', id: 'gun',    name: 'MG NEST', cost: 95,  kind: 'turret', type: 4, range: 17.0, damage: 26, rpm: 660, spread: 0.10, limit: 10 },
+  { key: '4', id: 'beam',   name: 'BEAM',    cost: 170, kind: 'turret', type: 1, range: 26.0, dps: 165, width: 1.4, dwell: 1.5, hitsPerSec: 240, limit: 5 },
+  { key: '5', id: 'bounce', name: 'BOUNCE',  cost: 210, kind: 'turret', type: 2, range: 40.0, dps: 200, width: 1.0, bounces: 4, sweep: 0.5, hitsPerSec: 230, limit: 5 },
+  { key: '6', id: 'mortar', name: 'MORTAR',  cost: 240, kind: 'turret', type: 3, range: 30.0, dps: 900, blast: 4.6, cooldown: 2.4, hitsPerSec: 300, limit: 5 },
 ];
 
 // Active abilities, the thing the original uses to survive density spikes.
