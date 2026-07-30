@@ -129,6 +129,7 @@ document.getElementById('over-menu').onclick = () => toTitle();
 async function resetRun() {
   state.paused = true;
   field.load(MAPS[mapIndex]);
+  horde.setBase(field.base.x, field.base.y);
   ground.rebuild();
   refreshField();
   build.reset();
@@ -248,6 +249,19 @@ renderer.domElement.addEventListener('pointerdown', (ev) => {
 
   // Clicking a turret upgrades it. At the build cap that is the only way to keep
   // up with the wave curve, so it needs to be the obvious action.
+  // shift-click sells whatever is under the cursor, turret or rampart
+  if (ev.shiftKey) {
+    const wall = build.rampartAt(world);
+    if (wall && !build.turretAt(world)) {
+      const refund = build.sellRampart(wall);
+      state.gold += refund;
+      refreshField();
+      sfx.place();
+      hud.toast(`rampart cleared, +${refund}g`);
+      return;
+    }
+  }
+
   const existing = build.turretAt(world);
   if (existing && ev.shiftKey) {
     const refund = build.sell(existing);
@@ -532,7 +546,12 @@ function dropRamparts(n) {
   console.log(`[ramparts] placed ${placed}, refused ${refused} (would have sealed the path)`);
 }
 if (PARAMS.get('spawn')) flood(Number(PARAMS.get('spawn')));
-if (PARAMS.get('wave') === '1') waves.call();   // start the real game loop headlessly
+if (PARAMS.get('wave') === '1') waves.call();
+// ?then=N switches to map N after 8s, which is how the map-change reset path gets
+// exercised without a human clicking the menu.
+if (PARAMS.get('then')) {
+  setTimeout(() => startMap(Number(PARAMS.get('then'))), 8000);
+}   // start the real game loop headlessly
 
 // Drop turrets along the route on the platform list the bot uses. ?only=<id>
 // restricts it to one weapon, which is how a single weapon gets tested in
@@ -574,6 +593,8 @@ globalThis.__orcflow = () => ({
   turrets: build.turrets.length, blasts: build.blasts.length,
   muzzles: horde._muzzleCount ?? 0, bulletCursor: horde._bulletCursor ?? 0,
   bulletHits: horde.stats.hits ?? 0, stuck: horde.stats.stuck ?? -1,
+  baseSynced: Math.hypot(horde.u.basePos.value.x - field.base.x, horde.u.basePos.value.y - field.base.y) < 0.01,
+  map: mapIndex,
   hp: state.hp, over: state.over, won: state.won, sandbox: state.sandbox,
   wave: waves.wave, waveState: waves.state, target: TARGET_WAVES, speed: simSpeed,
   queued: horde._spawnQueue.length, lastError: globalThis.__orcflowError ?? null,

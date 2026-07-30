@@ -66,6 +66,15 @@ export const RESTITUTION = 0.55;         // how much of an overlap is resolved p
 export const PRESSURE = 5.5;
 export const VISCOSITY = 3.0;
 
+// What turns a moving slab into a faucet. Packed orcs slow down, so a jam at a
+// choke backs up visibly and then surges when it clears. Orcs near rock drag, so
+// a channel gets a fast core and slow edges like real flow. A little curl on the
+// steering makes ribbons braid instead of running laminar.
+export const JAM_DENSITY = 5.0;          // density where crowding is fully felt
+export const JAM_SLOWDOWN = 0.55;        // speed multiplier in a full jam
+export const WALL_DRAG = 0.30;           // speed lost hugging rock
+export const CURL = 0.28;                // radians of wander, spatially coherent
+
 // Orc archetypes. CPU writes these into the GPU buffers at spawn time,
 // so adding a type never touches shader code.
 export const ORC_TYPES = [

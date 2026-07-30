@@ -135,3 +135,19 @@ test('turret platforms are rock, never walkable ground', () => {
     assert.equal(f.isPlatform(bx, by, 2), false, `${map.name}: open ground must not be a platform`);
   }
 });
+
+test('no map has an unreachable pocket of open ground', () => {
+  // Orcs standing in a sealed pocket have nowhere to walk, so they mill in place
+  // forever. Portal-to-base connectivity does not catch this; every open cell has
+  // to be reachable.
+  for (const map of MAPS) {
+    const f = new Field(map);
+    let open = 0, unreachable = 0;
+    for (let i = 0; i < f.walls.length; i++) {
+      if (f.walls[i]) continue;
+      open++;
+      if (!Number.isFinite(f.cost[i])) unreachable++;
+    }
+    assert.equal(unreachable, 0, `${map.name}: ${unreachable} of ${open} open cells cannot reach the base`);
+  }
+});

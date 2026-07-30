@@ -8,9 +8,10 @@
 //   bounce  -> one segment per reflection leg, zig-zagging off rock
 //   mortar  -> blasts, which are discs with a short life
 
-import { CELL_SCALE, RAMPART, RAMPART_HP, CHEW_DPS, TURRET_SIZE, BLAST_LIFE, MAX_BLASTS, MAX_TURRETS, MAX_BUILT, NO_BUILD_RADIUS, ABILITIES, SELL_REFUND } from '../config.js';
+import { BUILDS, CELL_SCALE, RAMPART, RAMPART_HP, CHEW_DPS, TURRET_SIZE, BLAST_LIFE, MAX_BLASTS, MAX_TURRETS, MAX_BUILT, NO_BUILD_RADIUS, ABILITIES, SELL_REFUND } from '../config.js';
 
 let nextId = 1;
+const BUILDS_WALL_COST = BUILDS.find((b) => b.kind === 'wall').cost;
 
 const shortestTurn = (from, to) => {
   let d = (to - from) % (Math.PI * 2);
@@ -77,6 +78,27 @@ export class Build {
       if (d < bestD) { bestD = d; best = t; }
     }
     return best;
+  }
+
+  // Ramparts were unsellable: turretAt only looks at turrets, so a shift-click on
+  // one did nothing at all (or worse, tried to build on it, since a rampart is
+  // rock). They refund like anything else now.
+  rampartAt(world) {
+    const { gx, gy } = this.latticeAt(world, RAMPART);
+    return this.ramparts.find((r) => r.gx === gx && r.gy === gy) ?? null;
+  }
+
+  sellRampart(r) {
+    const i = this.ramparts.indexOf(r);
+    if (i < 0) return 0;
+    this.ramparts.splice(i, 1);
+    this.field.setCells(r.gx, r.gy, RAMPART, false);
+    this.field.bake();
+    this.ground.rebuild();
+    this.onFieldChange();
+    // pro-rated by how much of the wall is still standing
+    const wear = Math.max(0.15, r.hp / r.maxHp);
+    return Math.round(BUILDS_WALL_COST * wear * SELL_REFUND);
   }
 
   upgradeCost(t) {

@@ -24,7 +24,7 @@ import {
 import {
   MAX_ORCS, SPAWN_BATCH, MAX_TURRETS, MAX_BLASTS, GRID_W, GRID_H,
   DENS_W, DENS_H, DENS_SCALE, CORPSE_FADE, REST_DENSITY, PRESSURE, VISCOSITY, BOUNTY_FLOOR,
-  BUCKET_K, ORC_RADIUS, RESTITUTION,
+  BUCKET_K, ORC_RADIUS, RESTITUTION, JAM_DENSITY, JAM_SLOWDOWN, WALL_DRAG, CURL,
   MAX_BULLETS, MAX_MUZZLES, MUZZLE_BURST, BULLET_SPEED, BULLET_LIFE,
 } from '../config.js';
 
@@ -138,6 +138,24 @@ export class Horde {
       const cx = clamp(q.x, float(0), gw.sub(1));
       const cy = clamp(q.y, float(0), gh.sub(1));
       return textureLoad(flowTex, ivec2(cx, cy)).w;
+    };
+
+    // How enclosed a spot is, 0 in open ground to 1 against rock. Bilinear on the
+    // rock flag, which is already in the texture.
+    const wallness = (p) => {
+      const fp = p.sub(vec2(0.5)).toVar();
+      const b = floor(fp).toVar();
+      const fr = fp.sub(b).toVar();
+      const at = (ox, oy) => {
+        const cx = clamp(b.x.add(float(ox)), float(0), gw.sub(1));
+        const cy = clamp(b.y.add(float(oy)), float(0), gh.sub(1));
+        return textureLoad(flowTex, ivec2(cx, cy)).z;
+      };
+      return mix(
+        mix(at(0, 0), at(1, 0), fr.x),
+        mix(at(0, 1), at(1, 1), fr.x),
+        fr.y,
+      );
     };
 
     // Exact per-cell rock test, no interpolation.
@@ -281,6 +299,30 @@ export class Horde {
           f.x.mul(sn).add(f.y.mul(cs)),
         ).toVar();
 
+        // ---- flow shaping: jam, drag, wander
+        const localN = float(atomicLoad(dens.element(
+          int(clamp(p.y.mul(DENS_SCALE), float(0), float(DENS_H - 1))).mul(int(DENS_W))
+            .add(int(clamp(p.x.mul(DENS_SCALE), float(0), float(DENS_W - 1)))),
+        ))).toVar();
+        const jam = clamp(localN.div(float(JAM_DENSITY)), 0, 1).toVar();
+        const drag = wallness(p).mul(float(WALL_DRAG)).toVar();
+        maxSpeed.mulAssign(
+          mix(float(1), float(JAM_SLOWDOWN), jam).mul(float(1).sub(drag)),
+        );
+
+        // Spatially coherent wander so neighbours agree and ribbons braid rather
+        // than every orc jittering on its own.
+        const nx0 = int(p.x.mul(0.12)).toVar();
+        const ny0 = int(p.y.mul(0.12)).toVar();
+        const tb = int(u.time.mul(0.7)).toVar();
+        const wob = hash(uint(nx0.mul(int(73856093)).add(ny0.mul(int(19349663))).add(tb.mul(int(83492791)))))
+          .sub(0.5).mul(float(CURL)).toVar();
+        const wc = cos(wob).toVar(), ws = sin(wob).toVar();
+        dir.assign(vec2(
+          dir.x.mul(wc).sub(dir.y.mul(ws)),
+          dir.x.mul(ws).add(dir.y.mul(wc)),
+        ));
+
         const want = dir.mul(maxSpeed);
         v.addAssign(want.sub(v).mul(min(u.dt.mul(7), 1)));
         const crowd = crowdForces(p);
@@ -354,7 +396,14 @@ export class Horde {
         If(touched.greaterThan(0.5), () => { A.z.assign(u.time); });   // flash
 
         // ---- reached the base: counts as a leak, not a kill
-        If(length(p.sub(u.basePos)).lessThan(1.7), () => {
+        // Two tests on purpose. The distance one is precise; the field one cannot
+        // desync from the map, because it reads the same bake the orc is walking
+        // down. A stale base uniform used to leave orcs jiggling on top of the
+        // base forever: never leaking, never counted, only dying if a weapon
+        // happened to cover that exact spot.
+        const atBase = length(p.sub(u.basePos)).lessThan(1.7)
+          .or(pathDist(p).lessThan(0.004));
+        If(atBase, () => {
           hp.assign(-1);
           d.w.assign(u.time);
           atomicAdd(cnt.element(1), uint(1));
@@ -558,6 +607,11 @@ export class Horde {
 
     this._spawnQueue = [];
     this._seed = 1;
+  }
+
+  // Must be called whenever the map changes: this uniform is what decides a leak.
+  setBase(x, y) {
+    this.u.basePos.value.set(x, y);
   }
 
   async init() {
