@@ -58,7 +58,7 @@ export class Hud {
 
   update(s) {
     const e = this.el;
-    e.hpfill.style.width = `${Math.max(0, (s.hp / s.hpMax) * 100)}%`;
+    e.hpfill.style.transform = `scaleX(${Math.max(0, Math.min(1, s.hp / s.hpMax))})`;
     e.hptext.textContent = `${Math.max(0, Math.ceil(s.hp))} / ${s.hpMax}`;
     e.gold.textContent = fmt(s.gold);
     e.orcs.textContent = fmt(s.alive);

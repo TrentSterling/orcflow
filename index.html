@@ -46,7 +46,14 @@
   #top { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); text-align: center; }
   #top .label { font-size: 11px; letter-spacing: 2px; color: var(--dim); }
   #hpwrap { width: 320px; height: 20px; margin: 2px auto 0; position: relative; }
-  #hpfill { position: absolute; inset: 2px; width: calc(100% - 4px); background: linear-gradient(#e2564a, #a4231c); transition: width 120ms linear; }
+  /* scaleX rather than width: this updates every frame during a leak, and a
+     transform stays on the compositor instead of relaying out the bar. */
+  #hpfill {
+    position: absolute; inset: 2px; width: calc(100% - 4px);
+    background: linear-gradient(#e2564a, #a4231c);
+    transform-origin: left center;
+    transition: transform 120ms linear;
+  }
   #hptext { position: absolute; inset: 0; line-height: 20px; font-size: 12px; text-shadow: 0 1px 0 #000; }
   #counters { display: flex; gap: 18px; justify-content: center; margin-top: 6px; font-size: 14px; text-shadow: 0 1px 0 #000; }
   #counters b { font-weight: normal; }
