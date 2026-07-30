@@ -25,6 +25,7 @@ import {
   MAX_ORCS, SPAWN_BATCH, MAX_TURRETS, MAX_BLASTS, GRID_W, GRID_H,
   DENS_W, DENS_H, DENS_SCALE, CORPSE_FADE, REST_DENSITY, PRESSURE, VISCOSITY, BOUNTY_FLOOR,
   BUCKET_K, ORC_RADIUS, RESTITUTION, JAM_DENSITY, JAM_SLOWDOWN, WALL_DRAG, CURL,
+  COHESION, BULLET_PIERCE_COST, BULLET_BLAST, BULLET_BLAST_MULT,
   MAX_BULLETS, MAX_MUZZLES, MUZZLE_BURST, BULLET_SPEED, BULLET_LIFE,
 } from '../config.js';
 
@@ -54,10 +55,12 @@ export class Horde {
     const dat = instancedArray(MAX_ORCS, 'vec4');
     const att = instancedArray(MAX_ORCS, 'vec4');
     const dens = instancedArray(DENS_W * DENS_H, 'uint').toAtomic();
-    // Velocity sums per cell, fixed point with a +1000 bias per orc so the atomics
-    // stay unsigned. Averaging them gives the local stream direction. X and Y are
-    // interleaved in one buffer: WebGPU only guarantees 8 storage buffers a stage.
-    const densV = instancedArray(DENS_W * DENS_H * 2, 'uint').toAtomic();
+    // Four sums per cell: velocity x, velocity y, position x, position y. Velocity
+    // carries a +1000 bias per orc so the atomics stay unsigned; position is
+    // always positive so it just gets scaled. Averaging these gives the two boid
+    // rules that need a neighbourhood, alignment and cohesion. All four live in
+    // one buffer because WebGPU only guarantees 8 storage buffers a stage.
+    const densV = instancedArray(DENS_W * DENS_H * 4, 'uint').toAtomic();
     // Spatial hash: up to BUCKET_K orc indices per cell, written as index+1 so
     // zero means empty. Not atomic, only the counter is.
     const bucket = instancedArray(DENS_W * DENS_H * BUCKET_K, 'uint');
@@ -79,6 +82,7 @@ export class Horde {
       time: uniform(1),               // starts at 1 so "deathTime 0" means alive
       pressure: uniform(PRESSURE),
       viscosity: uniform(VISCOSITY),
+      cohesion: uniform(COHESION),
       basePos: uniform(new THREE.Vector2(basePos.x, basePos.y)),
       turretCount: uniform(0, 'int'),
       blastCount: uniform(0, 'int'),
@@ -187,13 +191,18 @@ export class Horde {
         }
       }
       const n0 = float(atomicLoad(dens.element(here))).toVar();
-      const sx = float(atomicLoad(densV.element(here.mul(2)))).toVar();
-      const sy = float(atomicLoad(densV.element(here.mul(2).add(1)))).toVar();
+      const inv = float(1).div(max(n0, float(1))).toVar();
+      const sx = float(atomicLoad(densV.element(here.mul(4)))).toVar();
+      const sy = float(atomicLoad(densV.element(here.mul(4).add(1)))).toVar();
       const mean = vec2(
-        sx.sub(n0.mul(1000)).div(max(n0, float(1))).div(100),
-        sy.sub(n0.mul(1000)).div(max(n0, float(1))).div(100),
+        sx.sub(n0.mul(1000)).mul(inv).div(100),
+        sy.sub(n0.mul(1000)).mul(inv).div(100),
       ).toVar();
-      return { push, mean };
+      // centre of mass of the neighbourhood, for cohesion
+      const px = float(atomicLoad(densV.element(here.mul(4).add(2)))).toVar();
+      const py = float(atomicLoad(densV.element(here.mul(4).add(3)))).toVar();
+      const centre = vec2(px.mul(inv).div(10), py.mul(inv).div(10)).toVar();
+      return { push, mean, centre, count: n0 };
     };
 
     // ---- pass: init --------------------------------------------------------
@@ -237,8 +246,10 @@ export class Horde {
         const cy = int(clamp(p.y.mul(DENS_SCALE), float(0), float(DENS_H - 1)));
         const cell = cy.mul(int(DENS_W)).add(cx).toVar();
         const slot = atomicAdd(dens.element(cell), uint(1)).toVar();
-        atomicAdd(densV.element(cell.mul(2)), uint(P.z.mul(100).add(1000)));
-        atomicAdd(densV.element(cell.mul(2).add(1)), uint(P.w.mul(100).add(1000)));
+        atomicAdd(densV.element(cell.mul(4)), uint(P.z.mul(100).add(1000)));
+        atomicAdd(densV.element(cell.mul(4).add(1)), uint(P.w.mul(100).add(1000)));
+        atomicAdd(densV.element(cell.mul(4).add(2)), uint(p.x.mul(10)));
+        atomicAdd(densV.element(cell.mul(4).add(3)), uint(p.y.mul(10)));
         // first few orcs in a cell get a bucket slot for the pairwise pass
         If(slot.lessThan(uint(BUCKET_K)), () => {
           bucket.element(cell.mul(int(BUCKET_K)).add(int(slot))).assign(instanceIndex.add(uint(1)));
@@ -325,8 +336,17 @@ export class Horde {
 
         const want = dir.mul(maxSpeed);
         v.addAssign(want.sub(v).mul(min(u.dt.mul(7), 1)));
+        // The three boid rules, on top of flow-field goal seeking:
+        //   alignment  match the neighbours' velocity
+        //   cohesion   drift toward the local centre of mass
+        //   separation pressure here, plus exact pairwise resolution below
         const crowd = crowdForces(p);
         v.addAssign(crowd.mean.sub(v).mul(min(u.viscosity.mul(u.dt), 1)));
+        If(crowd.count.greaterThan(1.5), () => {
+          const toCentre = crowd.centre.sub(p).toVar();
+          const d = length(toCentre).add(1e-4).toVar();
+          v.addAssign(toCentre.div(d).mul(u.cohesion.mul(u.dt).mul(min(d, float(1)))));
+        });
         v.addAssign(crowd.push.mul(u.pressure.mul(u.dt)));
 
         const sp = length(v).add(1e-5).toVar();
@@ -498,6 +518,9 @@ export class Horde {
                   const A2 = att.element(other).toVar();
                   A2.z.assign(u.time);                      // hit flash
                   att.element(other).assign(A2);
+                  // Pierce: a hit costs life rather than ending the round, so the
+                  // pierce budget and the range are the same number.
+                  life.subAssign(float(BULLET_PIERCE_COST));
                   hit.assign(1);
                   atomicAdd(cnt.element(3), uint(1));       // bullet hits, for the HUD
                 });
@@ -506,16 +529,46 @@ export class Horde {
           }
         }
 
-        If(hit.greaterThan(0.5), () => { life.assign(0); });
-        bullets.element(instanceIndex).assign(vec4(p1, B.z, life));
+        // End of life is a detonation, so every round is two weapons: a line of
+        // pierced orcs and a blast where it stops.
+        If(life.lessThanEqual(0), () => {
+          const r = float(BULLET_BLAST);
+          const blastDmg = u.bulletDamage.mul(float(BULLET_BLAST_MULT));
+          const bcx = int(clamp(p1.x.mul(DENS_SCALE), float(2), float(DENS_W - 3))).toVar();
+          const bcy = int(clamp(p1.y.mul(DENS_SCALE), float(2), float(DENS_H - 3))).toVar();
+          for (let oy = -2; oy <= 2; oy++) {
+            for (let ox = -2; ox <= 2; ox++) {
+              const cell = bcy.add(int(oy)).mul(int(DENS_W)).add(bcx.add(int(ox))).toVar();
+              for (let k = 0; k < BUCKET_K; k++) {
+                const raw = bucket.element(cell.mul(int(BUCKET_K)).add(int(k))).toVar();
+                If(raw.greaterThan(uint(0)), () => {
+                  const idx = raw.sub(uint(1)).toVar();
+                  const tv = dat.element(idx).toVar();
+                  If(tv.x.greaterThan(0), () => {
+                    If(length(pos.element(idx).xy.sub(p1)).lessThan(r), () => {
+                      tv.x.assign(max(tv.x.sub(blastDmg), float(0)));
+                      dat.element(idx).assign(tv);
+                      const A3 = att.element(idx).toVar();
+                      A3.z.assign(u.time);
+                      att.element(idx).assign(A3);
+                    });
+                  });
+                });
+              }
+            }
+          }
+        });
+        bullets.element(instanceIndex).assign(vec4(p1, B.z, max(life, float(0))));
       });
     })().compute(MAX_BULLETS);
 
     // ---- pass: clear density ----------------------------------------------
     this.clearPass = Fn(() => {
       atomicStore(dens.element(instanceIndex), uint(0));
-      atomicStore(densV.element(instanceIndex.mul(2)), uint(0));
-      atomicStore(densV.element(instanceIndex.mul(2).add(1)), uint(0));
+      atomicStore(densV.element(instanceIndex.mul(4)), uint(0));
+      atomicStore(densV.element(instanceIndex.mul(4).add(1)), uint(0));
+      atomicStore(densV.element(instanceIndex.mul(4).add(2)), uint(0));
+      atomicStore(densV.element(instanceIndex.mul(4).add(3)), uint(0));
       If(instanceIndex.lessThan(uint(MAX_TURRETS + MAX_BLASTS)), () => {
         atomicStore(cnt.element(instanceIndex.add(uint(CNT_BUDGET))), uint(0));
       });
@@ -585,18 +638,25 @@ export class Horde {
     bGeo.instanceCount = MAX_BULLETS;
 
     const bA = bullets.toAttribute();
-    const bAlive = step(0.001, bA.w);
+    const bFlying = step(0.001, bA.w);
+    // 0 -> 1 across the negative-life dust tail
+    const bPuff = clamp(bA.w.negate().div(0.4), 0, 1).mul(step(-0.4, bA.w)).mul(float(1).sub(bFlying));
+    const bAlive = max(bFlying, step(0.001, bPuff));
     const bMat = new THREE.MeshBasicNodeMaterial();
-    bMat.positionNode = vec3(
-      bA.xy.add(positionGeometry.xy.mul(float(0.42).mul(bAlive))),
-      0.55,
-    );
+    // rounds swell just before they detonate, which is the only warning you get
+    const bFlare = clamp(float(0.28).sub(bA.w).mul(6), 0, 1);
+    // swells just before going off, then the dust blooms outward as it fades
+    const bSize = float(0.42).add(bFlare.mul(1.4).mul(bFlying)).add(bPuff.mul(5.0)).mul(bAlive);
+    bMat.positionNode = vec3(bA.xy.add(positionGeometry.xy.mul(bSize)), 0.55);
     // hot core fading to orange, and a stretch along travel would need the angle,
     // which the shader has: a round tracer reads fine at this size.
     const bd = length(uv().sub(vec2(0.5)));
     const bGlow = clamp(float(1).sub(bd.mul(2.2)), 0, 1);
-    bMat.colorNode = vec3(bGlow.mul(1.6), bGlow.mul(1.25), bGlow.mul(0.55));
-    bMat.opacityNode = bGlow.mul(bAlive);
+    // tracer while flying, warm dust while puffing, fading as it expands
+    const dust = vec3(0.9, 0.68, 0.44);
+    const tracer = vec3(1.7, 1.25, 0.6);
+    bMat.colorNode = mix(dust, tracer, bFlying).mul(bGlow);
+    bMat.opacityNode = bGlow.mul(mix(clamp(float(1).sub(bPuff), 0, 1).mul(0.65), float(1), bFlying));
     bMat.transparent = true;
     bMat.depthWrite = false;
     bMat.blending = THREE.AdditiveBlending;

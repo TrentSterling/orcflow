@@ -8,6 +8,14 @@ const DEFAULTS = {
   best: {},             // mapIndex -> highest wave reached
   cleared: {},          // mapIndex -> true once its target is held
   totalKills: 0,
+  relics: 0,                 // meta currency, earned every run win or lose
+  spent: 0,                  // relics currently invested, refunded on respec
+  nodes: {},                 // tree node id -> level
+  endlessBest: {},            // mapIndex -> best wave in endless
+  relics: 0,                 // meta currency, earned every run win or lose
+  spent: 0,                  // relics currently invested, refunded on respec
+  nodes: {},                 // tree node id -> level
+  endlessBest: {},            // mapIndex -> best wave in endless
   settings: {
     sfx: 0.7,
     music: 0.35,
@@ -28,6 +36,10 @@ function read() {
       settings: { ...DEFAULTS.settings, ...(parsed.settings ?? {}) },
       best: parsed.best ?? {},
       cleared: parsed.cleared ?? {},
+      nodes: parsed.nodes ?? {},
+      endlessBest: parsed.endlessBest ?? {},
+      nodes: parsed.nodes ?? {},
+      endlessBest: parsed.endlessBest ?? {},
     };
   } catch {
     return structuredClone(DEFAULTS);
@@ -50,6 +62,64 @@ export const save = {
   },
 
   bestWave(map) { return cache.best[map] ?? 0; },
+  endlessBest(map) { return cache.endlessBest[map] ?? 0; },
+
+  // ---- meta tree ----------------------------------------------------------
+  get relics() { return cache.relics; },
+  nodeLevel(id) { return cache.nodes[id] ?? 0; },
+
+  addRelics(n) { cache.relics += n; this.flush(); },
+
+  buyNode(id, cost) {
+    if (cache.relics < cost) return false;
+    cache.relics -= cost;
+    cache.spent += cost;
+    cache.nodes[id] = (cache.nodes[id] ?? 0) + 1;
+    this.flush();
+    return true;
+  },
+
+  // Free, always. The single loudest missing feature in the game this one nods to.
+  respec() {
+    cache.relics += cache.spent;
+    cache.spent = 0;
+    cache.nodes = {};
+    this.flush();
+  },
+
+  recordEndless(map, wave) {
+    cache.endlessBest[map] = Math.max(cache.endlessBest[map] ?? 0, wave);
+    this.flush();
+  },
+  endlessBest(map) { return cache.endlessBest[map] ?? 0; },
+
+  // ---- meta tree ----------------------------------------------------------
+  get relics() { return cache.relics; },
+  nodeLevel(id) { return cache.nodes[id] ?? 0; },
+
+  addRelics(n) { cache.relics += n; this.flush(); },
+
+  buyNode(id, cost) {
+    if (cache.relics < cost) return false;
+    cache.relics -= cost;
+    cache.spent += cost;
+    cache.nodes[id] = (cache.nodes[id] ?? 0) + 1;
+    this.flush();
+    return true;
+  },
+
+  // Free, always. The single loudest missing feature in the game this one nods to.
+  respec() {
+    cache.relics += cache.spent;
+    cache.spent = 0;
+    cache.nodes = {};
+    this.flush();
+  },
+
+  recordEndless(map, wave) {
+    cache.endlessBest[map] = Math.max(cache.endlessBest[map] ?? 0, wave);
+    this.flush();
+  },
   isCleared(map) { return cache.cleared[map] === true; },
   // Every map is playable from the start. Progression is what you have CLEARED
   // and your best wave, not a gate that a single hard map can slam shut.

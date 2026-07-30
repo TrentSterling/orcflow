@@ -13,6 +13,7 @@ import { Waves } from './game/waves.js';
 import { Hud } from './hud.js';
 import { makeOrcAtlas } from './art.js';
 import { save } from './save.js';
+import { effects as metaEffects, relicsFor } from './meta.js';
 import { Menu } from './menu.js';
 import { startAudio, resumeAudio, configureAudio, sfx } from './audio.js';
 import {
@@ -95,7 +96,9 @@ scene.add(horde.mesh);
 scene.add(horde.bulletMesh);
 
 const effects = new Effects(scene);
-const build = new Build(field, ground, horde, () => refreshField());
+// Tree effects are read once at boot, so a run's numbers cannot change under you.
+const meta = metaEffects();
+const build = new Build(field, ground, horde, () => refreshField(), meta);
 build.onRampartLost = () => { hud.toast('a rampart has fallen'); sfx.leak(); };
 const waves = new Waves(field, horde);
 
@@ -107,6 +110,9 @@ const menu = new Menu({
   onResume: () => { state.paused = false; menu.hidePause(); },
   onRestart: () => startMap(mapIndex),
   onQuit: () => toTitle(),
+  // Tree changes only take effect on the next run, which is why they are read
+  // once at boot: no run can shift under the player mid-wave.
+  onRespec: () => hud.toast('applies to your next run'),
   onSetting: (key, value) => {
     if (key === 'sfx' || key === 'music') configureAudio({ [key]: value });
     if (key === 'showBench') applyBenchVisibility();
@@ -184,6 +190,14 @@ function endRun(won) {
       kills: horde.stats.kills, mapCount: MAPS.length,
     });
   }
+  // Relics from every run, win or lose, scaled by how far you got. This is the
+  // whole answer to "forced to replay earlier levels to farm currency".
+  if (!attract && !BENCH && !state.sandbox) {
+    state.lastRelics = relicsFor({
+      wave: waves.wave, kills: horde.stats.kills, won, target: TARGET_WAVES,
+    });
+    save.addRelics(state.lastRelics);
+  }
   if (won) sfx.win(); else sfx.lose();
   if (state.sandbox) hud.toast('sandbox run: not recorded');
   const kills = horde.stats.kills.toLocaleString();
@@ -191,6 +205,7 @@ function endRun(won) {
     won ? `held all ${TARGET_WAVES} waves - ${kills} orcs killed` : `wave ${waves.wave} of ${TARGET_WAVES} - ${kills} orcs killed`,
     won ? 'HELD THE LINE' : 'OVERRUN',
   );
+  if (state.lastRelics) hud.toast(`+${state.lastRelics} relics`);
   document.getElementById('over-next').style.display =
     won && mapIndex + 1 < MAPS.length ? '' : 'none';
 }

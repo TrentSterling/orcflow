@@ -36,6 +36,12 @@ export const SPAWN_BATCH = 2048;         // hard cap on orcs spawned in one fram
 export const MAX_TURRETS = 256;
 export const MAX_BLASTS = 48;
 
+// A round pierces until its life runs out, then detonates. Each hit costs life,
+// so the pierce budget and the range are the same number.
+export const BULLET_PIERCE_COST = 0.22;
+export const BULLET_BLAST = 2.4;         // detonation radius at end of life
+export const BULLET_BLAST_MULT = 2.2;    // detonation damage vs a direct hit
+
 // Individual projectiles, on the GPU like everything else. One vec4 per bullet
 // (x, y, angle, life) keeps this inside the 8-storage-buffer limit, with speed and
 // damage as uniforms since there is one bullet type.
@@ -62,9 +68,10 @@ export const REST_DENSITY = 1.6;         // orcs per density cell before pressur
 // size, and it keeps the work per orc bounded at 9 cells x 4 = 36 candidates.
 export const BUCKET_K = 4;
 export const ORC_RADIUS = 0.22;          // half a grunt, for circle overlap
-export const RESTITUTION = 0.55;         // how much of an overlap is resolved per step
+export const RESTITUTION = 0.40;         // fraction of the averaged overlap resolved per step
 export const PRESSURE = 5.5;
-export const VISCOSITY = 3.0;
+export const VISCOSITY = 3.0;          // alignment: match the neighbours
+export const COHESION = 2.2;           // pull toward the local centre of mass
 
 // What turns a moving slab into a faucet. Packed orcs slow down, so a jam at a
 // choke backs up visibly and then surges when it clears. Orcs near rock drag, so
@@ -73,7 +80,7 @@ export const VISCOSITY = 3.0;
 export const JAM_DENSITY = 5.0;          // density where crowding is fully felt
 export const JAM_SLOWDOWN = 0.55;        // speed multiplier in a full jam
 export const WALL_DRAG = 0.30;           // speed lost hugging rock
-export const CURL = 0.28;                // radians of wander, spatially coherent
+export const CURL = 0.16;                // radians of wander, spatially coherent
 
 // Orc archetypes. CPU writes these into the GPU buffers at spawn time,
 // so adding a type never touches shader code.
@@ -143,7 +150,7 @@ export const BUILDS = [
 export const ABILITIES = [
   {
     key: 'q', id: 'strike', name: 'AIRSTRIKE', cooldown: 14,
-    radius: 5.0, dps: 2600, life: 0.7, count: 5, spacing: 5.5, hitsPerSec: 700,
+    radius: 4.6, dps: 3200, life: 0.8, count: 9, spacing: 4.6, hitsPerSec: 900, stagger: 0.05,
   },
   {
     key: 'e', id: 'nuke', name: 'NUKE', cooldown: 55,
@@ -154,6 +161,8 @@ export const ABILITIES = [
 // Speeds the player can pick. The sim runs N fixed substeps a frame rather than a
 // fatter dt, so fast forward is exact rather than sloppy.
 export const SPEEDS = [1, 2, 3, 5];
+// unlocked by the TIME DILATION node
+export const SPEEDS_FAST = [1, 2, 3, 5, 8, 12];
 
 // Every upgrade level changes behaviour, not just a damage number, and the tier
 // (levels 1-2, 3-4, 5-6) changes the silhouette and the effect colour.

@@ -21,7 +21,8 @@ const shortestTurn = (from, to) => {
 };
 
 export class Build {
-  constructor(field, ground, horde, onFieldChange = () => {}, maxBuilt = MAX_BUILT) {
+  constructor(field, ground, horde, onFieldChange = () => {}, meta = {}, maxBuilt = MAX_BUILT) {
+    this.meta = meta;
     this.maxBuilt = maxBuilt;
     this.onFieldChange = onFieldChange;
     this.onRampartLost = null;
@@ -51,17 +52,20 @@ export class Build {
 
   fireAbility(a, at, dir = { x: 1, y: 0 }) {
     if (!this.abilityReady(a)) return false;
-    this.cooldowns[a.id] = a.cooldown;
+    this.cooldowns[a.id] = a.cooldown * (this.meta.cooldownMult ?? 1);
     const len = Math.hypot(dir.x, dir.y) || 1;
     const ux = dir.x / len, uy = dir.y / len;
-    const first = -((a.count - 1) / 2) * a.spacing;
-    for (let i = 0; i < a.count; i++) {
+    const count = a.count + (a.id === 'strike' ? (this.meta.strikeBombs ?? 0) : 0);
+    const radius = a.radius * (a.id === 'nuke' ? (this.meta.nukeRadius ?? 1) : 1);
+    const first = -((count - 1) / 2) * a.spacing;
+    for (let i = 0; i < count; i++) {
       if (this.blasts.length >= MAX_BLASTS) break;
       const d = first + i * a.spacing;
       this.blasts.push({
         x: at.x + ux * d, y: at.y + uy * d,
-        radius: a.radius * 0.4, full: a.radius,
-        dps: a.dps, life: a.life, life0: a.life, hitsPerSec: a.hitsPerSec ?? 1e6,
+        radius: radius * 0.4, full: radius,
+        dps: a.dps, life: a.life + i * (a.stagger ?? 0), life0: a.life + i * (a.stagger ?? 0),
+        hitsPerSec: a.hitsPerSec ?? 1e6, tier: 1,
       });
     }
     return true;
@@ -98,11 +102,12 @@ export class Build {
     this.onFieldChange();
     // pro-rated by how much of the wall is still standing
     const wear = Math.max(0.15, r.hp / r.maxHp);
-    return Math.round(BUILDS_WALL_COST * wear * SELL_REFUND);
+    return Math.round(BUILDS_WALL_COST * wear * (this.meta.sellRefund ?? SELL_REFUND));
   }
 
   upgradeCost(t) {
-    return Math.round(t.baseCost * 0.8 * Math.pow(1.55, t.level - 1));
+    const mult = this.meta.upgradeCostMult ?? 1;
+    return Math.max(1, Math.round(t.baseCost * 0.8 * Math.pow(1.55, t.level - 1) * mult));
   }
 
   maxLevel() { return 6; }
@@ -111,7 +116,7 @@ export class Build {
     const i = this.turrets.indexOf(t);
     if (i < 0) return 0;
     this.turrets.splice(i, 1);
-    return Math.round((t.spent ?? t.baseCost) * SELL_REFUND);
+    return Math.round((t.spent ?? t.baseCost) * (this.meta.sellRefund ?? SELL_REFUND));
   }
 
   upgrade(t) {
@@ -169,7 +174,7 @@ export class Build {
   atCap() { return this.turrets.length >= this.maxBuilt; }
 
   builtOf(id) { return this.turrets.reduce((n, t) => n + (t.buildId === id ? 1 : 0), 0); }
-  limitOf(def) { return def.limit ?? 99; }
+  limitOf(def) { return (def.limit ?? 99) + (this.meta.capBonus?.[def.id] ?? 0); }
   atTypeCap(def) { return def.kind === 'turret' && this.builtOf(def.id) >= this.limitOf(def); }
 
   nearPortal(c) {
@@ -211,7 +216,8 @@ export class Build {
         this.field.bake();
         return 'that would seal the path';
       }
-      this.ramparts.push({ gx, gy, hp: RAMPART_HP, maxHp: RAMPART_HP });
+      const wallHp = RAMPART_HP * (this.meta.rampartHp ?? 1);
+      this.ramparts.push({ gx, gy, hp: wallHp, maxHp: wallHp });
       this.ground.rebuild();
       this.counts[build.id] = (this.counts[build.id] ?? 0) + 1;
       return null;
@@ -228,12 +234,12 @@ export class Build {
       x: c.x, y: c.y,
       type: build.type,
       range: build.range,
-      dps: build.dps,
+      dps: (build.dps ?? 0) * (this.meta.damageMult ?? 1),
       width: build.width ?? 1,
       sweep: build.sweep ?? 0,
       dwell: build.dwell ?? 1.2,
-      hitsPerSec: build.hitsPerSec ?? 1e6,
-      damage: build.damage ?? 0,
+      hitsPerSec: (build.hitsPerSec ?? 1e6) * (this.meta.hitsMult ?? 1),
+      damage: (build.damage ?? 0) * (this.meta.damageMult ?? 1),
       rpm: build.rpm ?? 0,
       spread: build.spread ?? 0.1,
       carry: 0,

@@ -7,6 +7,7 @@
 // a static picture.
 
 import { MAPS } from './maps.js';
+import { TREE, BRANCHES } from './meta.js';
 import { save } from './save.js';
 import { sfx } from './audio.js';
 
@@ -49,6 +50,8 @@ export class Menu {
     wrap.appendChild(this.mapList);
 
     const row = el('div', 'menurow');
+    const treeBtn = el('button', 'mbtn', 'UPGRADES');
+    treeBtn.onclick = () => { sfx.click(); this.showTree(); };
     const settingsBtn = el('button', 'mbtn', 'SETTINGS');
     settingsBtn.onclick = () => { sfx.click(); this.showSettings(); };
     const aboutBtn = el('button', 'mbtn', 'ABOUT');
@@ -56,7 +59,7 @@ export class Menu {
       sfx.click();
       document.getElementById('about').classList.toggle('show');
     };
-    row.append(settingsBtn, aboutBtn);
+    row.append(treeBtn, settingsBtn, aboutBtn);
     wrap.appendChild(row);
 
     wrap.appendChild(el('div', 'menufoot',
@@ -64,7 +67,8 @@ export class Menu {
       + '<a href="https://store.steampowered.com/search/?term=Sir%2C+We+Have+an+Orc+Problem" target="_blank" rel="noopener">Go play the real one.</a>'));
 
     this.settingsSheet = this.buildSettings();
-    this.root.append(wrap, this.settingsSheet);
+    this.treeSheet = this.buildTree();
+    this.root.append(wrap, this.settingsSheet, this.treeSheet);
     this.mainSheet = wrap;
     this.refreshMaps();
   }
@@ -158,8 +162,93 @@ export class Menu {
     return sheet;
   }
 
-  showSettings() { this.mainSheet.classList.add('hidden'); this.settingsSheet.classList.remove('hidden'); }
-  showMain() { this.settingsSheet.classList.remove('hidden'); this.settingsSheet.classList.add('hidden'); this.mainSheet.classList.remove('hidden'); }
+  showSettings() {
+    this.mainSheet.classList.add('hidden');
+    this.treeSheet.classList.add('hidden');
+    this.settingsSheet.classList.remove('hidden');
+  }
+
+  showTree() {
+    this.mainSheet.classList.add('hidden');
+    this.settingsSheet.classList.add('hidden');
+    this.treeSheet.classList.remove('hidden');
+    this.refreshTree();
+  }
+
+  showMain() {
+    this.settingsSheet.classList.add('hidden');
+    this.treeSheet.classList.add('hidden');
+    this.mainSheet.classList.remove('hidden');
+    this.refreshMaps();
+  }
+
+  // ---- upgrade tree ---------------------------------------------------------
+  // Flat branches rather than a node graph on purpose. The game this nods to has
+  // 50+ nodes and reviewers said most of them repeat; this is 20 nodes that each
+  // change something you can point at, all visible at once, no scrolling.
+  buildTree() {
+    const sheet = el('div', 'sheet wide hidden');
+    const head = el('div', 'treehead');
+    head.appendChild(el('h2', 'title2', 'UPGRADES'));
+    this.relicCount = el('div', 'relics', '');
+    head.appendChild(this.relicCount);
+    sheet.appendChild(head);
+
+    sheet.appendChild(el('p', 'treenote',
+      'Relics come from every run, won or lost. Respec is free, so experiment.'));
+
+    this.treeBody = el('div', 'treebody');
+    sheet.appendChild(this.treeBody);
+
+    const row = el('div', 'menurow');
+    const back = el('button', 'mbtn', 'BACK');
+    back.onclick = () => { sfx.click(); this.showMain(); };
+    const respec = el('button', 'mbtn', 'RESPEC (FREE)');
+    respec.onclick = () => {
+      sfx.click();
+      save.respec();
+      this.cb.onRespec?.();
+      this.refreshTree();
+    };
+    row.append(back, respec);
+    sheet.appendChild(row);
+    return sheet;
+  }
+
+  refreshTree() {
+    this.relicCount.innerHTML = `<b>${save.relics}</b> relics`;
+    this.treeBody.replaceChildren();
+
+    for (const branch of BRANCHES) {
+      const col = el('div', 'branch');
+      const h = el('div', 'branchname', branch.name);
+      h.style.color = branch.colour;
+      col.appendChild(h);
+
+      for (const node of TREE.filter((n) => n.branch === branch.id)) {
+        const lvl = save.nodeLevel(node.id);
+        const maxed = lvl >= node.max;
+        const cost = maxed ? 0 : node.cost[lvl];
+        const afford = !maxed && save.relics >= cost;
+
+        const card = el('button', `node${maxed ? ' maxed' : ''}${afford ? ' afford' : ''}`);
+        card.innerHTML = `
+          <div class="nrow"><span class="nname">${node.name}</span>
+            <span class="nlvl">${lvl}/${node.max}</span></div>
+          <div class="ndesc">${node.desc(Math.max(1, lvl || 1))}</div>
+          <div class="ncost">${maxed ? 'MAXED' : `${cost} relics`}</div>`;
+        card.disabled = maxed || !afford;
+        card.onclick = () => {
+          if (!save.buyNode(node.id, cost)) return;
+          sfx.place();
+          this.cb.onRespec?.();
+          this.refreshTree();
+        };
+        col.appendChild(card);
+      }
+      this.treeBody.appendChild(col);
+    }
+  }
 
   show() { this.root.classList.add('show'); this.refreshMaps(); }
   hide() { this.root.classList.remove('show'); }

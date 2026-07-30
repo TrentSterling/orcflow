@@ -131,7 +131,10 @@
     background: var(--panel); border: 2px solid var(--edge);
     box-shadow: 0 4px 0 #000, inset 0 0 0 1px rgba(255,255,255,0.05);
     padding: 22px 26px; max-width: 720px; width: 100%; text-align: center;
+    max-height: calc(100vh - 40px); overflow-y: auto;
   }
+  /* the tree needs four columns side by side, so it gets its own width */
+  .sheet.wide { max-width: 1180px; }
   .sheet.hidden { display: none; }
   .title { margin: 0; font-size: 44px; letter-spacing: 8px; color: var(--ink); text-shadow: 0 3px 0 #000; }
   .tagline { color: var(--gold); letter-spacing: 3px; font-size: 12px; margin-top: 2px; }
@@ -164,6 +167,30 @@
   .srow input[type="range"] { width: 100%; accent-color: #e8c33c; }
   .srow select { font: inherit; background: #2a1d0f; color: var(--ink); border: 1px solid var(--edge); padding: 4px; }
   .srow input[type="checkbox"] { accent-color: #e8c33c; width: 16px; height: 16px; }
+
+  /* ---- upgrade tree ---- */
+  .treehead { display: flex; align-items: baseline; justify-content: center; gap: 14px; }
+  .relics { font-size: 13px; color: var(--dim); }
+  .relics b { color: var(--gold); font-size: 17px; font-weight: normal; }
+  .treenote { margin: 0 0 14px; font-size: 11px; color: var(--dim); }
+  .treebody { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; text-align: left; }
+  @media (max-width: 900px) { .treebody { grid-template-columns: repeat(2, 1fr); } }
+  .branchname { font-size: 11px; letter-spacing: 2px; margin-bottom: 6px; }
+  .node {
+    display: block; width: 100%; margin-bottom: 6px; padding: 6px 8px; cursor: pointer;
+    font: inherit; color: var(--ink); text-align: left;
+    background: rgba(38,26,14,0.85); border: 2px solid var(--edge);
+  }
+  .node:disabled { cursor: not-allowed; opacity: 0.45; }
+  .node.afford { border-color: #7a5732; }
+  .node.afford:hover { border-color: var(--gold); background: rgba(70,48,18,0.95); }
+  .node.maxed { opacity: 0.75; border-color: #3f5c2a; }
+  .nrow { display: flex; justify-content: space-between; gap: 8px; }
+  .nname { font-size: 12px; letter-spacing: 1px; }
+  .nlvl { font-size: 11px; color: var(--gold); }
+  .ndesc { font-size: 10px; color: var(--dim); line-height: 1.45; margin: 2px 0 3px; min-height: 26px; }
+  .ncost { font-size: 10px; color: var(--gold); }
+  .node.maxed .ncost { color: var(--good); }
 
   #boot { position: fixed; inset: 0; display: grid; place-content: center; text-align: center; padding: 24px; }
   #boot h1 { font-size: 26px; letter-spacing: 3px; margin: 0 0 8px; }
