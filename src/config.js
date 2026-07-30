@@ -57,31 +57,12 @@ export const CORPSE_FADE = 80.0;
 
 export const TILE_PX = 16;               // ground texture pixels per cell
 export const SPRITE_PX = 16;             // orc sprite size in atlas
-// Crowd behaviour is a two-term fluid step rather than plain separation:
-//   PRESSURE  pushes down the gradient of "orcs above resting density", so the
-//             horde packs tight until it has to spread, then pours sideways
-//   VISCOSITY blends each orc toward the local average velocity, which is what
-//             turns a mob into laminar streams that split and rejoin
-export const REST_DENSITY = 1.6;         // orcs per density cell before pressure builds
-
-// Neighbours stored per cell for the pairwise pass. Four is enough at this cell
-// size, and it keeps the work per orc bounded at 9 cells x 4 = 36 candidates.
-export const BUCKET_K = 4;
+// Contact physics, not steering. Orcs are discs that push each other apart and
+// cancel the closing part of their relative velocity, resolved twice a frame
+// against the spatial hash. The flow field is the only thing that steers.
+export const BUCKET_K = 8;
 export const ORC_RADIUS = 0.22;          // half a grunt, for circle overlap
-export const RESTITUTION = 0.40;         // fraction of the averaged overlap resolved per step
-export const PRESSURE = 5.5;
-export const VISCOSITY = 3.0;          // alignment: match the neighbours
-export const COHESION = 2.2;           // pull toward the local centre of mass
-
-// What turns a moving slab into a faucet. Packed orcs slow down, so a jam at a
-// choke backs up visibly and then surges when it clears. Orcs near rock drag, so
-// a channel gets a fast core and slow edges like real flow. A little curl on the
-// steering makes ribbons braid instead of running laminar.
-export const JAM_DENSITY = 5.0;          // density where crowding is fully felt
-export const JAM_SLOWDOWN = 0.55;        // speed multiplier in a full jam
-export const WALL_DRAG = 0.30;           // speed lost hugging rock
-export const CURL = 0.16;                // radians of wander, spatially coherent
-
+export const RESTITUTION = 0.65;         // share of an overlap corrected per relaxation pass
 // Orc archetypes. CPU writes these into the GPU buffers at spawn time,
 // so adding a type never touches shader code.
 export const ORC_TYPES = [

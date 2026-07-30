@@ -39,7 +39,22 @@ that touches open ground, each cell pointing at its parent. The sim also skips
 its own collision rejection while an orc is inside rock, otherwise the escape
 route is blocked by the very check meant to keep orcs out.
 
-**Density grid, not a spatial hash.** Orcs atomically write into a half-unit grid
+**Physics first, steering never louder than the field.** The crowd is a contact
+simulation: discs that resolve overlap against a spatial hash and cancel the
+closing part of their relative velocity, twice a frame. The flow field is the only
+thing that *steers*. An earlier version layered six steering terms on top
+(cohesion, velocity alignment, a pressure gradient, curl noise, jam slowdown, wall
+drag) and they spent their time fighting each other and the field: crowds twitched
+in place, and a dense clump could reach an equilibrium where every term cancelled
+and the blob simply parked.
+
+The rule going forward, if steering behaviours come back: **build the physics
+first, then let every behaviour submit a recommendation, weight them into a single
+force, and cap that force so it can never outweigh the flow field.** Six
+independent forces mutating velocity in sequence is not a system, it is six
+authors arguing inside one loop.
+
+**Density grid, doubling as a spatial hash.** Orcs atomically write into a half-unit grid
 and steer down its gradient. A real GPU hash needs count / prefix-sum / scatter
 passes; this needs two, and it produces the nose-to-tail river look the reference
 game has. The scatter-then-read-then-clear order means every read sees a complete

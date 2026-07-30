@@ -23,9 +23,9 @@ import {
 
 import {
   MAX_ORCS, SPAWN_BATCH, MAX_TURRETS, MAX_BLASTS, GRID_W, GRID_H,
-  DENS_W, DENS_H, DENS_SCALE, CORPSE_FADE, REST_DENSITY, PRESSURE, VISCOSITY, BOUNTY_FLOOR,
-  BUCKET_K, ORC_RADIUS, RESTITUTION, JAM_DENSITY, JAM_SLOWDOWN, WALL_DRAG, CURL,
-  COHESION, BULLET_PIERCE_COST, BULLET_BLAST, BULLET_BLAST_MULT,
+  DENS_W, DENS_H, DENS_SCALE, CORPSE_FADE, BOUNTY_FLOOR,
+  BUCKET_K, ORC_RADIUS, RESTITUTION,
+  BULLET_PIERCE_COST, BULLET_BLAST, BULLET_BLAST_MULT,
   MAX_BULLETS, MAX_MUZZLES, MUZZLE_BURST, BULLET_SPEED, BULLET_LIFE,
 } from '../config.js';
 
@@ -56,12 +56,6 @@ export class Horde {
     const dat = instancedArray(MAX_ORCS, 'vec4');
     const att = instancedArray(MAX_ORCS, 'vec4');
     const dens = instancedArray(DENS_W * DENS_H, 'uint').toAtomic();
-    // Four sums per cell: velocity x, velocity y, position x, position y. Velocity
-    // carries a +1000 bias per orc so the atomics stay unsigned; position is
-    // always positive so it just gets scaled. Averaging these gives the two boid
-    // rules that need a neighbourhood, alignment and cohesion. All four live in
-    // one buffer because WebGPU only guarantees 8 storage buffers a stage.
-    const densV = instancedArray(DENS_W * DENS_H * 4, 'uint').toAtomic();
     // Spatial hash: up to BUCKET_K orc indices per cell, written as index+1 so
     // zero means empty. Not atomic, only the counter is.
     const bucket = instancedArray(DENS_W * DENS_H * BUCKET_K, 'uint');
@@ -75,15 +69,12 @@ export class Horde {
     const CNT_BUDGET = 6;   // 0-3 monotonic, 4 stuck gauge, 5 spare
     const cnt = instancedArray(CNT_BUDGET + MAX_TURRETS + MAX_BLASTS, 'uint').toAtomic();
     const budgetAt = (i) => i.add(int(CNT_BUDGET));
-    this._buffers = { pos, dat, att, dens, densV, bucket, bullets, cnt };
+    this._buffers = { pos, dat, att, dens, bucket, bullets, cnt };
 
     // ---- uniforms ----------------------------------------------------------
     const u = {
       dt: uniform(0),
       time: uniform(1),               // starts at 1 so "deathTime 0" means alive
-      pressure: uniform(PRESSURE),
-      viscosity: uniform(VISCOSITY),
-      cohesion: uniform(COHESION),
       basePos: uniform(new THREE.Vector2(basePos.x, basePos.y)),
       turretCount: uniform(0, 'int'),
       blastCount: uniform(0, 'int'),
@@ -193,33 +184,93 @@ export class Horde {
     // velocity. Pressure only builds past a resting density, so the crowd packs
     // shoulder to shoulder and only spreads where it is actually squeezed, and
     // the velocity term makes neighbours agree, which is what reads as flow.
-    const crowdForces = (p) => {
+    // ---- pass: init --------------------------------------------------------
+    // deathTime far in the past means "empty slot", so nothing renders at boot.
+    this.bulletClearPass = Fn(() => {
+      bullets.element(instanceIndex).assign(vec4(0, 0, 0, 0));
+    })().compute(MAX_BULLETS);
+
+    this.initPass = Fn(() => {
+      pos.element(instanceIndex).assign(vec4(0, 0, 0, 0));
+      dat.element(instanceIndex).assign(vec4(0, 0, 0, -1000));
+      att.element(instanceIndex).assign(vec4(1, 0, -1000, 0.5));
+    })().compute(MAX_ORCS);
+
+    // Zeroes the monotonic counters, so a restart starts from a clean score
+    // without the CPU having to track an offset.
+    this.counterResetPass = Fn(() => {
+      atomicStore(cnt.element(instanceIndex), uint(0));
+    })().compute(4);
+
+    // ---- pass: spawn -------------------------------------------------------
+    this.spawnPass = Fn(() => {
+      If(int(instanceIndex).lessThan(u.spawnCount), () => {
+        const slot = u.spawnCursor.add(int(instanceIndex)).mod(int(MAX_ORCS)).toVar();
+        const s1 = hash(instanceIndex.add(uint(u.spawnSeed))).toVar();
+        const s2 = hash(instanceIndex.add(uint(u.spawnSeed)).add(uint(9871))).toVar();
+        const s3 = hash(instanceIndex.add(uint(u.spawnSeed)).add(uint(31337))).toVar();
+        const off = vec2(s1.sub(0.5), s2.sub(0.5)).mul(u.spawnSpread.mul(2));
+        pos.element(slot).assign(vec4(u.spawnPos.add(off), 0, 0));
+        dat.element(slot).assign(vec4(u.spawnHp, u.spawnType, s3, 0));
+        att.element(slot).assign(vec4(u.spawnSpeed, u.spawnGold, -1000, u.spawnScale));
+      });
+    })().compute(SPAWN_BATCH);
+
+    // ---- pass: scatter -----------------------------------------------------
+    this.scatterPass = Fn(() => {
+      If(dat.element(instanceIndex).x.greaterThan(0), () => {
+        const P = pos.element(instanceIndex).toVar();
+        const p = P.xy.toVar();
+        const cx = int(clamp(p.x.mul(DENS_SCALE), float(0), float(DENS_W - 1)));
+        const cy = int(clamp(p.y.mul(DENS_SCALE), float(0), float(DENS_H - 1)));
+        const cell = cy.mul(int(DENS_W)).add(cx).toVar();
+        const slot = atomicAdd(dens.element(cell), uint(1)).toVar();
+        // first few orcs in a cell get a bucket slot for the pairwise pass
+        If(slot.lessThan(uint(BUCKET_K)), () => {
+          bucket.element(cell.mul(int(BUCKET_K)).add(int(slot))).assign(instanceIndex.add(uint(1)));
+        });
+      });
+    })().compute(MAX_ORCS);
+
+    // Circle-circle contact solver against the spatial hash. Each body takes half
+    // of every overlap and half of the closing velocity, so a pair converges
+    // instead of trading pushes. Work is bounded: 9 cells x BUCKET_K candidates.
+    const resolveContacts = (p, v, self) => {
       const cx = int(clamp(p.x.mul(DENS_SCALE), float(1), float(DENS_W - 2))).toVar();
       const cy = int(clamp(p.y.mul(DENS_SCALE), float(1), float(DENS_H - 2))).toVar();
       const push = vec2(0).toVar();
-      const here = int(0).toVar();
+      const vel = v.toVar();
+      const minDist = float(ORC_RADIUS * 2);
       for (let oy = -1; oy <= 1; oy++) {
         for (let ox = -1; ox <= 1; ox++) {
-          const idx = cy.add(int(oy)).mul(int(DENS_W)).add(cx.add(int(ox)));
-          if (ox === 0 && oy === 0) { here.assign(idx); continue; }
-          const n = float(atomicLoad(dens.element(idx))).toVar();
-          const press = max(n.sub(float(REST_DENSITY)), float(0)).toVar();
-          push.subAssign(vec2(ox, oy).mul(press));
+          const cell = cy.add(int(oy)).mul(int(DENS_W)).add(cx.add(int(ox))).toVar();
+          for (let k = 0; k < BUCKET_K; k++) {
+            const raw = bucket.element(cell.mul(int(BUCKET_K)).add(int(k))).toVar();
+            If(raw.greaterThan(uint(0)), () => {
+              const other = raw.sub(uint(1)).toVar();
+              If(other.notEqual(self), () => {
+                const Q = pos.element(other).toVar();
+                const delta = p.sub(Q.xy).toVar();
+                const dist = length(delta).add(1e-4).toVar();
+                If(dist.lessThan(minDist), () => {
+                  const n = delta.div(dist).toVar();             // contact normal
+                  push.addAssign(n.mul(minDist.sub(dist).mul(0.5)));
+                  // kill the approaching half of the relative velocity
+                  const closing = dot(vel.sub(Q.zw), n).toVar();
+                  If(closing.lessThan(0), () => {
+                    vel.subAssign(n.mul(closing.mul(0.5)));
+                  });
+                });
+              });
+            });
+          }
         }
       }
-      const n0 = float(atomicLoad(dens.element(here))).toVar();
-      const inv = float(1).div(max(n0, float(1))).toVar();
-      const sx = float(atomicLoad(densV.element(here.mul(4)))).toVar();
-      const sy = float(atomicLoad(densV.element(here.mul(4).add(1)))).toVar();
-      const mean = vec2(
-        sx.sub(n0.mul(1000)).mul(inv).div(100),
-        sy.sub(n0.mul(1000)).mul(inv).div(100),
-      ).toVar();
-      // centre of mass of the neighbourhood, for cohesion
-      const px = float(atomicLoad(densV.element(here.mul(4).add(2)))).toVar();
-      const py = float(atomicLoad(densV.element(here.mul(4).add(3)))).toVar();
-      const centre = vec2(px.mul(inv).div(10), py.mul(inv).div(10)).toVar();
-      return { push, mean, centre, count: n0 };
+      // one frame may never move a body more than its own radius
+      const mag = length(push).add(1e-5).toVar();
+      const cap = float(ORC_RADIUS);
+      If(mag.greaterThan(cap), () => { push.mulAssign(cap.div(mag)); });
+      return { push: push.mul(float(RESTITUTION)), vel };
     };
 
     // ---- pass: init --------------------------------------------------------
@@ -263,10 +314,6 @@ export class Horde {
         const cy = int(clamp(p.y.mul(DENS_SCALE), float(0), float(DENS_H - 1)));
         const cell = cy.mul(int(DENS_W)).add(cx).toVar();
         const slot = atomicAdd(dens.element(cell), uint(1)).toVar();
-        atomicAdd(densV.element(cell.mul(4)), uint(P.z.mul(100).add(1000)));
-        atomicAdd(densV.element(cell.mul(4).add(1)), uint(P.w.mul(100).add(1000)));
-        atomicAdd(densV.element(cell.mul(4).add(2)), uint(p.x.mul(10)));
-        atomicAdd(densV.element(cell.mul(4).add(3)), uint(p.y.mul(10)));
         // first few orcs in a cell get a bucket slot for the pairwise pass
         If(slot.lessThan(uint(BUCKET_K)), () => {
           bucket.element(cell.mul(int(BUCKET_K)).add(int(slot))).assign(instanceIndex.add(uint(1)));
@@ -317,67 +364,26 @@ export class Horde {
         const hp = d.x.toVar();
         const maxSpeed = A.x.toVar();
 
-        // Steer along the field, rotated a hair per-orc so packs do not form
-        // perfect single-file lines.
+        // ---- goal seeking. The flow field is the ONLY thing that steers an orc.
+        // Everything else below is contact physics. There used to be six steering
+        // terms here (cohesion, velocity alignment, a pressure gradient, curl
+        // noise, jam slowdown, wall drag) and they spent most of their time
+        // fighting each other and the field, which is what made the crowd twitch.
         const f = flowAt(p).toVar();
-        const jit = d.z.sub(0.5).mul(0.4).toVar();
+        const jit = d.z.sub(0.5).mul(0.25).toVar();     // tiny per-orc heading bias
         const cs = cos(jit).toVar(), sn = sin(jit).toVar();
         const dir = vec2(
           f.x.mul(cs).sub(f.y.mul(sn)),
           f.x.mul(sn).add(f.y.mul(cs)),
         ).toVar();
 
-        // ---- flow shaping: jam, drag, wander
-        const localN = float(atomicLoad(dens.element(
-          int(clamp(p.y.mul(DENS_SCALE), float(0), float(DENS_H - 1))).mul(int(DENS_W))
-            .add(int(clamp(p.x.mul(DENS_SCALE), float(0), float(DENS_W - 1)))),
-        ))).toVar();
-        const jam = clamp(localN.div(float(JAM_DENSITY)), 0, 1).toVar();
-        const drag = wallness(p).mul(float(WALL_DRAG)).toVar();
-        maxSpeed.mulAssign(
-          mix(float(1), float(JAM_SLOWDOWN), jam).mul(float(1).sub(drag)),
-        );
-
-        // Spatially coherent wander so neighbours agree and ribbons braid rather
-        // than every orc jittering on its own.
-        const nx0 = int(p.x.mul(0.12)).toVar();
-        const ny0 = int(p.y.mul(0.12)).toVar();
-        const tb = int(u.time.mul(0.7)).toVar();
-        const wob = hash(uint(nx0.mul(int(73856093)).add(ny0.mul(int(19349663))).add(tb.mul(int(83492791)))))
-          .sub(0.5).mul(float(CURL)).toVar();
-        const wc = cos(wob).toVar(), ws = sin(wob).toVar();
-        dir.assign(vec2(
-          dir.x.mul(wc).sub(dir.y.mul(ws)),
-          dir.x.mul(ws).add(dir.y.mul(wc)),
-        ));
-
+        // A motor with traction: accelerate toward the goal velocity. Contacts
+        // are what slow an orc down, not a slowdown curve.
         const want = dir.mul(maxSpeed);
-        v.addAssign(want.sub(v).mul(min(u.dt.mul(7), 1)));
-        // The three boid rules, on top of flow-field goal seeking:
-        //   alignment  match the neighbours' velocity
-        //   cohesion   drift toward the local centre of mass
-        //   separation pressure here, plus exact pairwise resolution below
-        const crowd = crowdForces(p);
-        v.addAssign(crowd.mean.sub(v).mul(min(u.viscosity.mul(u.dt), 1)));
-        If(crowd.count.greaterThan(1.5), () => {
-          const toCentre = crowd.centre.sub(p).toVar();
-          const d = length(toCentre).add(1e-4).toVar();
-          v.addAssign(toCentre.div(d).mul(u.cohesion.mul(u.dt).mul(min(d, float(1)))));
-        });
-        v.addAssign(crowd.push.mul(u.pressure.mul(u.dt)));
+        v.addAssign(want.sub(v).mul(min(u.dt.mul(8), 1)));
 
         const sp = length(v).add(1e-5).toVar();
         If(sp.greaterThan(maxSpeed), () => { v.mulAssign(maxSpeed.div(sp)); });
-
-        // Hard guarantee: an orc always makes progress toward the goal. Crowd
-        // terms are allowed to shape the flow, never to cancel it. Without this
-        // a packed clump can settle into an equilibrium where cohesion, pressure
-        // and jam-slowdown balance out and the whole blob parks itself.
-        const along = dot(v, dir).toVar();
-        const floorSpeed = maxSpeed.mul(0.35).toVar();
-        If(along.lessThan(floorSpeed), () => {
-          v.addAssign(dir.mul(floorSpeed.sub(along)));
-        });
 
         // Integrate, rejecting each axis separately so orcs slide along rock
         // instead of stopping dead against it. An orc that is already buried
@@ -393,13 +399,17 @@ export class Horde {
         });
         p.assign(vec2(nx, ny));
 
-        // Positional separation after integrating: resolving overlap directly is
-        // far more stable than doing it with forces, and it is what makes a packed
-        // crowd look packed instead of soupy. It must not shove anyone into rock,
-        // though: an orc pushed inside a platform ends up stranded.
-        const sep = pairSeparation(p, instanceIndex).mul(float(RESTITUTION)).toVar();
-        const sepTo = p.add(sep).toVar();
-        If(isRock(sepTo).not(), () => { p.assign(sepTo); });
+        // ---- contact resolution. Two relaxation passes of circle-circle
+        // collision, each correcting position AND cancelling the approaching
+        // part of the relative velocity. Correcting position alone is an
+        // oscillator: bodies shove apart, their unchanged velocity drives them
+        // straight back together, and that is the jitter.
+        for (let iter = 0; iter < 2; iter++) {
+          const c = resolveContacts(p, v, instanceIndex);
+          const to = p.add(c.push).toVar();
+          If(isRock(to), () => {}).Else(() => { p.assign(to); });
+          v.assign(c.vel);
+        }
 
         // ---- weapons. Two shapes only, both area based, which is what lets
         // damage be evaluated orc-side with no target-selection pass:
@@ -595,10 +605,6 @@ export class Horde {
     // ---- pass: clear density ----------------------------------------------
     this.clearPass = Fn(() => {
       atomicStore(dens.element(instanceIndex), uint(0));
-      atomicStore(densV.element(instanceIndex.mul(4)), uint(0));
-      atomicStore(densV.element(instanceIndex.mul(4).add(1)), uint(0));
-      atomicStore(densV.element(instanceIndex.mul(4).add(2)), uint(0));
-      atomicStore(densV.element(instanceIndex.mul(4).add(3)), uint(0));
       If(instanceIndex.lessThan(uint(MAX_TURRETS + MAX_BLASTS)), () => {
         atomicStore(cnt.element(instanceIndex.add(uint(CNT_BUDGET))), uint(0));
       });
