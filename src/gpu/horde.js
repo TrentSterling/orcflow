@@ -142,7 +142,11 @@ export class Horde {
       const len = length(blended).toVar();
       const raw = textureLoad(flowTex,
         ivec2(clamp(p.x, float(0), gw.sub(1)), clamp(p.y, float(0), gh.sub(1)))).xy.mul(2).sub(1);
-      return mix(raw, blended.div(len), step(float(0.35), len));
+      // max() on the divisor is load-bearing: mix evaluates BOTH operands, so a
+      // divide by a zero-length blend produces NaN even when step() selects the
+      // fallback. NaN then poisons direction, velocity and position, and an orc
+      // with a NaN position never moves again.
+      return mix(raw, blended.div(max(len, float(1e-4))), step(float(0.35), len));
     };
 
     // Normalised distance to base, straight out of the flow texture's alpha.
@@ -155,6 +159,10 @@ export class Horde {
 
     // How enclosed a spot is, 0 in open ground to 1 against rock. Bilinear on the
     // rock flag, which is already in the texture.
+    // How enclosed a spot is: 0 in open ground, 1 against rock. Bilinear on the
+    // rock flag that is already in the texture. Returns a SCALAR: an earlier patch
+    // pasted the flow-direction fallback in here because both helpers ended with
+    // an identical mix(), which made this return a vec2 and corrupted maxSpeed.
     const wallness = (p) => {
       const fp = p.sub(vec2(0.5)).toVar();
       const b = floor(fp).toVar();
@@ -164,19 +172,11 @@ export class Horde {
         const cy = clamp(b.y.add(float(oy)), float(0), gh.sub(1));
         return textureLoad(flowTex, ivec2(cx, cy)).z;
       };
-      const blended = mix(
+      return mix(
         mix(at(0, 0), at(1, 0), fr.x),
         mix(at(0, 1), at(1, 1), fr.x),
         fr.y,
-      ).toVar();
-      // Rock cells carry escape vectors pointing out of the slab, so next to
-      // geometry the blend can cancel to nothing and the orc simply stops. When
-      // that happens, fall back to this cell's own unfiltered direction, which is
-      // always a real heading.
-      const len = length(blended).toVar();
-      const raw = textureLoad(flowTex,
-        ivec2(clamp(p.x, float(0), gw.sub(1)), clamp(p.y, float(0), gh.sub(1)))).xy.mul(2).sub(1);
-      return mix(raw, blended.div(len), step(float(0.35), len));
+      );
     };
 
     // Exact per-cell rock test, no interpolation.
