@@ -38,6 +38,7 @@ export class Horde {
     // Totals the CPU believes in, updated from async readbacks.
     this.stats = { kills: 0, leaks: 0, gold: 0, spawned: 0, alive: 0, recycled: 0 };
     this._lastCounters = [0, 0, 0, 0];
+    this._lastStuck = 0;
     this._countersInFlight = false;
     this._generation = 0;
     this._densityInFlight = false;
@@ -129,11 +130,19 @@ export class Horde {
         const cy = clamp(b.y.add(float(oy)), float(0), gh.sub(1));
         return textureLoad(flowTex, ivec2(cx, cy)).xy.mul(2).sub(1);
       };
-      return mix(
+      const blended = mix(
         mix(at(0, 0), at(1, 0), fr.x),
         mix(at(0, 1), at(1, 1), fr.x),
         fr.y,
-      );
+      ).toVar();
+      // Rock cells carry escape vectors pointing out of the slab, so next to
+      // geometry the blend can cancel to nothing and the orc simply stops. When
+      // that happens, fall back to this cell's own unfiltered direction, which is
+      // always a real heading.
+      const len = length(blended).toVar();
+      const raw = textureLoad(flowTex,
+        ivec2(clamp(p.x, float(0), gw.sub(1)), clamp(p.y, float(0), gh.sub(1)))).xy.mul(2).sub(1);
+      return mix(raw, blended.div(len), step(float(0.35), len));
     };
 
     // Normalised distance to base, straight out of the flow texture's alpha.
@@ -155,11 +164,19 @@ export class Horde {
         const cy = clamp(b.y.add(float(oy)), float(0), gh.sub(1));
         return textureLoad(flowTex, ivec2(cx, cy)).z;
       };
-      return mix(
+      const blended = mix(
         mix(at(0, 0), at(1, 0), fr.x),
         mix(at(0, 1), at(1, 1), fr.x),
         fr.y,
-      );
+      ).toVar();
+      // Rock cells carry escape vectors pointing out of the slab, so next to
+      // geometry the blend can cancel to nothing and the orc simply stops. When
+      // that happens, fall back to this cell's own unfiltered direction, which is
+      // always a real heading.
+      const len = length(blended).toVar();
+      const raw = textureLoad(flowTex,
+        ivec2(clamp(p.x, float(0), gw.sub(1)), clamp(p.y, float(0), gh.sub(1)))).xy.mul(2).sub(1);
+      return mix(raw, blended.div(len), step(float(0.35), len));
     };
 
     // Exact per-cell rock test, no interpolation.
@@ -352,6 +369,16 @@ export class Horde {
         const sp = length(v).add(1e-5).toVar();
         If(sp.greaterThan(maxSpeed), () => { v.mulAssign(maxSpeed.div(sp)); });
 
+        // Hard guarantee: an orc always makes progress toward the goal. Crowd
+        // terms are allowed to shape the flow, never to cancel it. Without this
+        // a packed clump can settle into an equilibrium where cohesion, pressure
+        // and jam-slowdown balance out and the whole blob parks itself.
+        const along = dot(v, dir).toVar();
+        const floorSpeed = maxSpeed.mul(0.35).toVar();
+        If(along.lessThan(floorSpeed), () => {
+          v.addAssign(dir.mul(floorSpeed.sub(along)));
+        });
+
         // Integrate, rejecting each axis separately so orcs slide along rock
         // instead of stopping dead against it. An orc that is already buried
         // (a rampart landed on it) skips the check entirely, otherwise it can
@@ -429,9 +456,12 @@ export class Horde {
           atomicAdd(cnt.element(1), uint(1));
         });
 
-        // Instantaneous gauge of how many living orcs are barely moving. Cleared
-        // every frame, so it measures a symptom rather than accumulating.
-        If(length(v).lessThan(float(0.25)), () => { atomicAdd(cnt.element(4), uint(1)); });
+        // Monotonic count of orc-frames spent inside rock. Goal-ward speed is
+        // guaranteed below, so "moving too slowly" is no longer possible and
+        // measuring it would be tautological; being buried in a platform still
+        // is possible, and it is the failure mode worth watching. The CPU diffs
+        // this like kills, because clearing it each frame raced the readback.
+        If(isRock(p), () => { atomicAdd(cnt.element(4), uint(1)); });
 
         d.x.assign(max(hp, 0));
         att.element(instanceIndex).assign(A);
@@ -572,7 +602,7 @@ export class Horde {
       If(instanceIndex.lessThan(uint(MAX_TURRETS + MAX_BLASTS)), () => {
         atomicStore(cnt.element(instanceIndex.add(uint(CNT_BUDGET))), uint(0));
       });
-      If(instanceIndex.equal(uint(0)), () => { atomicStore(cnt.element(4), uint(0)); });
+
     })().compute(DENS_W * DENS_H);
 
     // ---- render ------------------------------------------------------------
@@ -706,6 +736,7 @@ export class Horde {
     this._spawnQueue.length = 0;
     this.stats = { kills: 0, leaks: 0, gold: 0, spawned: 0, alive: 0, recycled: 0, recycling: false };
     this._lastCounters = [0, 0, 0, 0];
+    this._lastStuck = 0;
     this.pendingGold = 0;
     this.pendingLeaks = 0;
     this.density = new Uint32Array(DENS_W * DENS_H);
@@ -790,7 +821,9 @@ export class Horde {
       this.stats.leaks = c[1];
       this.stats.gold = c[2];
       this.stats.hits = c[3];
-      this.stats.stuck = c[4];
+      // stuck orc-frames since the last readback, so it reads as a rate
+      this.stats.stuck = Math.max(0, c[4] - this._lastStuck);
+      this._lastStuck = c[4];
       this.pendingGold += dGold;
       this.pendingLeaks += dLeaks;
       // Orcs overwritten by the spawn ring never report a death, so the derived

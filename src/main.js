@@ -105,6 +105,16 @@ const waves = new Waves(field, horde);
 // A rebake rewrites field.flow in place, so the GPU just needs the upload flag.
 const refreshField = () => { flowTex.needsUpdate = true; ap.cells = null; };
 
+// URL overrides for the crowd tuning constants, so a suspect term can be turned
+// off and measured instead of argued about.
+const tuneParam = (name, apply) => {
+  const v = PARAMS.get(name);
+  if (v !== null) apply(Number(v));
+};
+tuneParam('cohesion', (v) => { horde.u.cohesion.value = v; });
+tuneParam('pressure', (v) => { horde.u.pressure.value = v; });
+tuneParam('viscosity', (v) => { horde.u.viscosity.value = v; });
+
 const menu = new Menu({
   onStart: (i) => startMap(i),
   onResume: () => { state.paused = false; menu.hidePause(); },
