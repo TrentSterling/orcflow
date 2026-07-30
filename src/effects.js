@@ -4,11 +4,14 @@
 
 import * as THREE from 'three/webgpu';
 import { texture, uv, vec2 } from 'three/tsl';
-import { makeTurretAtlas, makeGlow, makeBeam, makeLevelStrip } from './art.js';
+import { makeTurretAtlas, makeGlow, makeBeam, makeLevelStrip, TURRET_TILES } from './art.js';
 
 const TURRET_SIZE = 2.7;
 // turret behaviour -> atlas tile (blades, emitter, emitter, mortar)
-const TILE_FOR_TYPE = [0, 1, 1, 2, 1];   // 4 = mg nest, reuses the emitter tile
+// behaviour -> atlas column group; each group holds three tiers
+const GROUP_FOR_TYPE = [0, 1, 2, 3, 4];   // blades, beam, bounce, mortar, mg
+// tier -> beam/glow colour, matching the sprite accents
+const TIER_BEAM = [0xffd27a, 0xe08cff, 0x8ef2ff];
 
 export class Effects {
   constructor(scene) {
@@ -18,24 +21,26 @@ export class Effects {
     this.beamTex = makeBeam();
 
     // One cutout material per atlas tile.
-    this.turretMats = [0, 1, 2].map((tile) => {
+    this.turretMats = Array.from({ length: TURRET_TILES }, (_, tile) => {
       const m = new THREE.MeshBasicNodeMaterial();
-      m.colorNode = texture(this.atlas, vec2(uv().x.add(tile).div(3), uv().y));
-      m.opacityNode = texture(this.atlas, vec2(uv().x.add(tile).div(3), uv().y)).a;
+      const uvNode = vec2(uv().x.add(tile).div(TURRET_TILES), uv().y);
+      m.colorNode = texture(this.atlas, uvNode);
+      m.opacityNode = texture(this.atlas, uvNode).a;
       m.alphaTest = 0.5;
       return m;
     });
 
     // Additive layers stack: with dozens of turrets firing, full-strength quads
     // blow the screen out, so every layer gets an opacity budget.
-    this.beamMat = new THREE.MeshBasicNodeMaterial({
-      map: this.beamTex, transparent: true, depthWrite: false, opacity: 0.42,
+    // one beam and core material per tier, so an upgraded beam is a new colour
+    this.beamMats = TIER_BEAM.map((color) => new THREE.MeshBasicNodeMaterial({
+      map: this.beamTex, color, transparent: true, depthWrite: false, opacity: 0.42,
       blending: THREE.AdditiveBlending,
-    });
-    this.coreMat = new THREE.MeshBasicNodeMaterial({
-      map: this.beamTex, transparent: true, depthWrite: false, opacity: 0.8,
+    }));
+    this.coreMats = TIER_BEAM.map((color) => new THREE.MeshBasicNodeMaterial({
+      map: this.beamTex, color, transparent: true, depthWrite: false, opacity: 0.8,
       blending: THREE.AdditiveBlending,
-    });
+    }));
     this.glowMat = new THREE.MeshBasicNodeMaterial({
       map: this.glowTex, transparent: true, depthWrite: false, opacity: 0.5,
       blending: THREE.AdditiveBlending,
@@ -110,7 +115,8 @@ export class Effects {
     let ti = 0, bi = 0, gi = 0, zi = 0, li = 0;
 
     for (const t of turrets) {
-      const tile = TILE_FOR_TYPE[t.type] ?? 0;
+      const tier = Math.min(2, t.tier ?? 0);
+      const tile = (GROUP_FOR_TYPE[t.type] ?? 0) * 3 + tier;
       const mesh = this.#at(this.turretPool, ti, this.turretMats[tile]);
       mesh.material = this.turretMats[tile];
       mesh.position.set(t.x, t.y, 0.4);
@@ -154,14 +160,15 @@ export class Effects {
       const hot = s.hot ?? 1;
       const ang = Math.atan2(dy, dx);
       // wide soft body plus a thin hot core, so a beam looks like it is cutting
-      const body = this.#at(this.beamPool, bi, this.beamMat);
+      const st = Math.min(2, s.tier ?? 0);
+      const body = this.#at(this.beamPool, bi, this.beamMats[st]);
       body.position.set(s.x0 + dx / 2, s.y0 + dy / 2, 0.6);
-      body.material = this.beamMat;
+      body.material = this.beamMats[st];
       body.scale.set(len, Math.max(1.2, s.width * 3.6 * hot), 1);
       body.rotation.z = ang;
       bi++;
-      const core = this.#at(this.beamPool, bi, this.coreMat);
-      core.material = this.coreMat;
+      const core = this.#at(this.beamPool, bi, this.coreMats[st]);
+      core.material = this.coreMats[st];
       core.position.set(s.x0 + dx / 2, s.y0 + dy / 2, 0.62);
       core.scale.set(len, Math.max(0.5, s.width * 1.5) * (0.85 + Math.sin(time * 30 + s.x0) * 0.15), 1);
       core.rotation.z = ang;

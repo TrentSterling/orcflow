@@ -8,7 +8,7 @@
 //   bounce  -> one segment per reflection leg, zig-zagging off rock
 //   mortar  -> blasts, which are discs with a short life
 
-import { BUILDS, CELL_SCALE, RAMPART, RAMPART_HP, CHEW_DPS, TURRET_SIZE, BLAST_LIFE, MAX_BLASTS, MAX_TURRETS, MAX_BUILT, NO_BUILD_RADIUS, ABILITIES, SELL_REFUND } from '../config.js';
+import { BUILDS, UPGRADE, tierOf, CELL_SCALE, RAMPART, RAMPART_HP, CHEW_DPS, TURRET_SIZE, BLAST_LIFE, MAX_BLASTS, MAX_TURRETS, MAX_BUILT, NO_BUILD_RADIUS, ABILITIES, SELL_REFUND } from '../config.js';
 
 let nextId = 1;
 const BUILDS_WALL_COST = BUILDS.find((b) => b.kind === 'wall').cost;
@@ -118,10 +118,28 @@ export class Build {
     if (t.level >= this.maxLevel()) return 'max level';
     t.spent = (t.spent ?? t.baseCost) + this.upgradeCost(t);
     t.level++;
-    t.dps *= 1.6;
-    t.hitsPerSec *= 1.5;
-    t.range *= 1.05;
-    if (t.blast) t.blast *= 1.06;
+    t.tier = tierOf(t.level);
+
+    // shared scaling
+    t.dps *= UPGRADE.dps;
+    t.hitsPerSec *= UPGRADE.hits;
+    t.range *= UPGRADE.range;
+
+    // and the part that makes an upgrade feel like a different weapon
+    if (t.type === 4) {
+      t.rpm *= UPGRADE.rpm;
+      t.damage *= UPGRADE.dps;
+      t.spread *= UPGRADE.spread;
+    }
+    if (t.type === 1) t.width *= UPGRADE.width;
+    if (t.type === 2) {
+      t.width *= UPGRADE.width * 0.5 + 0.5;
+      if (UPGRADE.legsAt.includes(t.level)) t.bounces += 1;
+    }
+    if (t.type === 3) {
+      t.blast *= UPGRADE.blast;
+      if (UPGRADE.salvoAt.includes(t.level)) t.salvo += 1;
+    }
     return null;
   }
 
@@ -202,6 +220,8 @@ export class Build {
     this.turrets.push({
       id: nextId++,
       level: 1,
+      tier: 0,
+      salvo: 1,
       buildId: build.id,
       baseCost: build.cost,
       spent: this.costOf(build),
@@ -274,7 +294,7 @@ export class Build {
   // rounds carry over so a 660 rpm gun is 11 a second, not 10 or 12.
   #muzzles(dt) {
     const out = [];
-    let damage = 0, spread = 0.1;
+    let damage = 0, spread = 0.1, tier = 0;
     for (const t of this.turrets) {
       if (t.type !== 4) continue;
       const target = this.horde.densestNear(t.x, t.y, t.range);
@@ -285,9 +305,10 @@ export class Build {
       t.carry -= rounds;
       damage = t.damage;
       spread = t.spread;
+      tier = Math.max(tier, t.tier ?? 0);
       if (rounds > 0 && out.length < 16) out.push({ x: t.x, y: t.y, angle: t.angle, rounds });
     }
-    this.horde.setMuzzles(out, damage, spread);
+    this.horde.setMuzzles(out, damage, spread, tier);
   }
 
   update(dt, time) {
@@ -323,7 +344,7 @@ export class Build {
         }
         const hit = this.field.rayHit(t.x, t.y, Math.cos(t.angle), Math.sin(t.angle), t.range);
         weapons.push({ kind: 1, x0: t.x, y0: t.y, x1: hit.x, y1: hit.y, dps: t.dps, width: t.width, cap: t.hitsPerSec * dt });
-        this.segments.push({ x0: t.x, y0: t.y, x1: hit.x, y1: hit.y, width: t.width, hot: 1 });
+        this.segments.push({ x0: t.x, y0: t.y, x1: hit.x, y1: hit.y, width: t.width, hot: 1, tier: t.tier });
         continue;
       }
 
@@ -334,7 +355,7 @@ export class Build {
         for (const leg of bounceLegs) {
           if (weapons.length >= MAX_TURRETS) break;
           weapons.push({ kind: 1, ...leg, dps: t.dps, width: t.width, cap: (t.hitsPerSec / Math.max(1, legs)) * dt });
-          this.segments.push({ ...leg, width: t.width, hot: 0.75 });
+          this.segments.push({ ...leg, width: t.width, hot: 0.75, tier: t.tier });
         }
         continue;
       }
@@ -348,10 +369,19 @@ export class Build {
           // snapshot. The CPU never learns about individual orcs.
           const target = this.horde.densestNear(t.x, t.y, t.range);
           if (target && this.blasts.length < MAX_BLASTS) {
-            this.blasts.push({
-              x: target.x, y: target.y, radius: t.blast * 0.5, full: t.blast,
-              dps: t.dps, life: BLAST_LIFE, life0: BLAST_LIFE, hitsPerSec: t.hitsPerSec,
-            });
+            // Higher tiers walk a salvo across the target instead of dropping one
+            // shell, which is both more damage and obviously different to watch.
+            for (let k = 0; k < (t.salvo ?? 1); k++) {
+              if (this.blasts.length >= MAX_BLASTS) break;
+              const a = (k / Math.max(1, t.salvo)) * Math.PI * 2;
+              const spread = k === 0 ? 0 : t.blast * 0.55;
+              this.blasts.push({
+                x: target.x + Math.cos(a) * spread, y: target.y + Math.sin(a) * spread,
+                radius: t.blast * 0.5, full: t.blast, tier: t.tier,
+                dps: t.dps, life: BLAST_LIFE + k * 0.08, life0: BLAST_LIFE + k * 0.08,
+                hitsPerSec: t.hitsPerSec,
+              });
+            }
             t.timer = t.cooldown;
           } else {
             t.timer = 0.25;         // nothing worth shelling, check again shortly

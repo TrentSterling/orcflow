@@ -92,62 +92,144 @@ export function makeOrcAtlas() {
   return pixelTexture(c);
 }
 
-// Tiles: 0 blades, 1 beam emitter, 2 mortar. Drawn barrel-along-+x so the
-// sprite can just be rotated to the aim angle.
+// Turret atlas: five behaviours x three tiers, so a turret's silhouette changes
+// as it climbs. Tier is level 1-2, 3-4, 5-6. Everything is drawn barrel-along-+x
+// so the sprite can simply be rotated to the aim angle.
+//
+// Column order: blades, beam, bounce, mortar, machine gun. 15 tiles.
+export const TURRET_TIERS = 3;
+export const TURRET_TILES = 15;
+
+const CHASSIS = [
+  { ring: '#2b2013', body: '#6b4f2e', core: '#3b2b18' },   // tier 0, timber
+  { ring: '#232a33', body: '#5e6b78', core: '#2b333d' },   // tier 1, plated
+  { ring: '#1d2733', body: '#7d8ea3', core: '#28394d' },   // tier 2, alloy
+];
+
+const ACCENT = ['#e8c33c', '#d770ff', '#7ef0ff'];          // gold, violet, plasma
+
 export function makeTurretAtlas() {
   const S = 32;
-  const c = canvas(S * 3, S);
+  const c = canvas(S * TURRET_TILES, S);
   const ctx = c.getContext('2d');
 
-  const base = (ox) => {
-    ctx.fillStyle = '#2b2013';
-    ctx.beginPath(); ctx.arc(ox + S / 2, S / 2, 12, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#6b4f2e';
-    ctx.beginPath(); ctx.arc(ox + S / 2, S / 2, 10, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#3b2b18';
-    ctx.beginPath(); ctx.arc(ox + S / 2, S / 2, 6, 0, Math.PI * 2); ctx.fill();
+  const base = (ox, tier, r = 12) => {
+    const k = CHASSIS[tier];
+    ctx.fillStyle = k.ring;
+    ctx.beginPath(); ctx.arc(ox + S / 2, S / 2, r, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = k.body;
+    ctx.beginPath(); ctx.arc(ox + S / 2, S / 2, r - 2, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = k.core;
+    ctx.beginPath(); ctx.arc(ox + S / 2, S / 2, r - 6, 0, Math.PI * 2); ctx.fill();
+    if (tier === 2) {                       // alloy tier gets rivets
+      ctx.fillStyle = k.ring;
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        ctx.fillRect(ox + S / 2 + Math.cos(a) * (r - 3) - 1, S / 2 + Math.sin(a) * (r - 3) - 1, 2, 2);
+      }
+    }
   };
 
-  // 0: crossed blades
-  base(0);
-  ctx.save();
-  ctx.translate(S / 2, S / 2);
-  for (const a of [0.6, 0.6 + Math.PI / 2]) {
-    ctx.save(); ctx.rotate(a);
-    ctx.fillStyle = PALETTE.steel; ctx.fillRect(-14, -1.5, 28, 3);
-    ctx.fillStyle = '#8f959e'; ctx.fillRect(-14, 0.5, 28, 1);
+  // ---- blades: 2 -> 3 -> 4 arms, longer and brighter each tier
+  for (let t = 0; t < 3; t++) {
+    const ox = t * S;
+    base(ox, t);
+    const arms = 2 + t;
+    const len = 13 + t * 1.5;
+    ctx.save();
+    ctx.translate(ox + S / 2, S / 2);
+    for (let i = 0; i < arms; i++) {
+      ctx.save();
+      ctx.rotate(0.4 + (i / arms) * Math.PI * 2);
+      ctx.fillStyle = PALETTE.steel; ctx.fillRect(-len, -1.5 - t * 0.4, len * 2, 3 + t * 0.8);
+      ctx.fillStyle = '#8f959e'; ctx.fillRect(-len, 0.5, len * 2, 1);
+      ctx.restore();
+    }
+    ctx.fillStyle = ACCENT[t];
+    ctx.beginPath(); ctx.arc(0, 0, 3 + t, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
   }
-  ctx.fillStyle = PALETTE.gold;
-  ctx.beginPath(); ctx.arc(0, 0, 3, 0, Math.PI * 2); ctx.fill();
-  ctx.restore();
 
-  // 1: beam emitter
-  base(S);
-  ctx.save();
-  ctx.translate(S + S / 2, S / 2);
-  ctx.fillStyle = '#8e949c'; ctx.fillRect(0, -3, 15, 6);
-  ctx.fillStyle = '#d9dee6'; ctx.fillRect(0, -3, 15, 2);
-  ctx.fillStyle = '#ff5a3c'; ctx.fillRect(13, -2, 3, 4);
-  ctx.restore();
+  // ---- beam: single lens -> shrouded dual -> spinning optic ring
+  for (let t = 0; t < 3; t++) {
+    const ox = (3 + t) * S;
+    base(ox, t);
+    ctx.save();
+    ctx.translate(ox + S / 2, S / 2);
+    const barrels = t === 0 ? [0] : (t === 1 ? [-2.5, 2.5] : [-3.5, 0, 3.5]);
+    for (const off of barrels) {
+      ctx.fillStyle = '#8e949c'; ctx.fillRect(0, off - 1.6, 15 + t, 3.2);
+      ctx.fillStyle = '#d9dee6'; ctx.fillRect(0, off - 1.6, 15 + t, 1);
+      ctx.fillStyle = ACCENT[t]; ctx.fillRect(13 + t, off - 1.2, 3, 2.4);
+    }
+    if (t >= 1) {                            // energy shroud
+      ctx.strokeStyle = ACCENT[t]; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(2, 0, 7 + t, -1.1, 1.1); ctx.stroke();
+    }
+    ctx.restore();
+  }
 
-  // 2: mortar
-  base(S * 2);
-  ctx.save();
-  ctx.translate(S * 2 + S / 2, S / 2);
-  ctx.fillStyle = '#4a4f57';
-  ctx.beginPath(); ctx.arc(0, 0, 8, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#20242a';
-  ctx.beginPath(); ctx.arc(0, 0, 5, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#7c838d';
-  ctx.fillRect(-9, -2, 4, 4); ctx.fillRect(5, -2, 4, 4);
-  ctx.restore();
+  // ---- bounce: prism emitter, facets multiply with tier
+  for (let t = 0; t < 3; t++) {
+    const ox = (6 + t) * S;
+    base(ox, t);
+    ctx.save();
+    ctx.translate(ox + S / 2, S / 2);
+    ctx.fillStyle = '#8e949c'; ctx.fillRect(0, -2, 12, 4);
+    const facets = 3 + t * 2;
+    ctx.fillStyle = ACCENT[t];
+    for (let i = 0; i < facets; i++) {
+      const a = (i / facets) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(a) * 8, Math.sin(a) * 8);
+      ctx.lineTo(Math.cos(a + 0.5) * 5, Math.sin(a + 0.5) * 5);
+      ctx.lineTo(0, 0);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // ---- mortar: single tube -> twin battery -> salvo pod
+  for (let t = 0; t < 3; t++) {
+    const ox = (9 + t) * S;
+    base(ox, t, 13);
+    ctx.save();
+    ctx.translate(ox + S / 2, S / 2);
+    const tubes = t === 0 ? [[0, 0]] : (t === 1 ? [[-4, 0], [4, 0]] : [[-4, -4], [4, -4], [-4, 4], [4, 4]]);
+    for (const [tx, ty] of tubes) {
+      ctx.fillStyle = '#4a4f57';
+      ctx.beginPath(); ctx.arc(tx, ty, t === 2 ? 3.6 : 5.5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#15181c';
+      ctx.beginPath(); ctx.arc(tx, ty, t === 2 ? 2.2 : 3.4, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.fillStyle = ACCENT[t];
+    ctx.fillRect(-1.5, -13, 3, 3);
+    ctx.restore();
+  }
+
+  // ---- machine gun: single barrel -> twin rotary -> quad gatling
+  for (let t = 0; t < 3; t++) {
+    const ox = (12 + t) * S;
+    base(ox, t);
+    ctx.save();
+    ctx.translate(ox + S / 2, S / 2);
+    const rows = t === 0 ? [0] : (t === 1 ? [-2.6, 2.6] : [-4, -1.3, 1.3, 4]);
+    for (const off of rows) {
+      ctx.fillStyle = '#7c838d'; ctx.fillRect(0, off - 1.1, 14 + t * 2, 2.2);
+      ctx.fillStyle = '#c9cdd4'; ctx.fillRect(0, off - 1.1, 14 + t * 2, 0.9);
+    }
+    ctx.fillStyle = CHASSIS[t].ring;         // ammo drum
+    ctx.beginPath(); ctx.arc(-4, 0, 5 + t, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = ACCENT[t];
+    ctx.beginPath(); ctx.arc(-4, 0, 2, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
 
   return pixelTexture(c);
 }
 
-// Level pips: one tile per turret level, so an upgraded turret is readable at a
-// glance instead of only in its damage numbers.
+// Level pips: one tile per turret level, so the exact level is readable at a
+// glance even between tier changes.
 export function makeLevelStrip(levels = 6) {
   const tw = 16, th = 5;
   const c = canvas(tw * levels, th);

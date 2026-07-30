@@ -155,6 +155,27 @@ export const ABILITIES = [
 // fatter dt, so fast forward is exact rather than sloppy.
 export const SPEEDS = [1, 2, 3, 5];
 
+// Every upgrade level changes behaviour, not just a damage number, and the tier
+// (levels 1-2, 3-4, 5-6) changes the silhouette and the effect colour.
+//   blades  more arms, wider disc
+//   mg      faster fire, tighter spread, hotter tracers
+//   beam    thicker beam
+//   bounce  an extra reflection leg at 3 and 5
+//   mortar  an extra shell in the salvo at 3 and 5
+export const UPGRADE = {
+  dps: 1.55,
+  hits: 1.45,
+  range: 1.05,
+  rpm: 1.22,
+  spread: 0.86,
+  width: 1.16,
+  blast: 1.07,
+  legsAt: [3, 5],
+  salvoAt: [3, 5],
+};
+
+export const tierOf = (level) => (level <= 2 ? 0 : level <= 4 ? 1 : 2);
+
 // Selling refunds this share of everything sunk into a turret.
 export const SELL_REFUND = 0.6;
 
