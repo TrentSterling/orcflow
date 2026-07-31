@@ -8,6 +8,7 @@ import { MAPS } from './maps.js';
 import { Ground } from './ground.js';
 import { Horde } from './gpu/horde.js';
 import { Effects } from './effects.js';
+import { FlowOverlay } from './debug.js';
 import { Build } from './game/build.js';
 import { Waves } from './game/waves.js';
 import { Hud } from './hud.js';
@@ -96,6 +97,7 @@ scene.add(horde.mesh);
 scene.add(horde.bulletMesh);
 
 const effects = new Effects(scene);
+const flowDebug = new FlowOverlay(scene, field);
 // Tree effects are read once at boot, so a run's numbers cannot change under you.
 const meta = metaEffects();
 const build = new Build(field, ground, horde, () => refreshField(), meta);
@@ -103,7 +105,11 @@ build.onRampartLost = () => { hud.toast('a rampart has fallen'); sfx.leak(); };
 const waves = new Waves(field, horde);
 
 // A rebake rewrites field.flow in place, so the GPU just needs the upload flag.
-const refreshField = () => { flowTex.needsUpdate = true; ap.cells = null; };
+const refreshField = () => {
+  flowTex.needsUpdate = true;
+  ap.cells = null;
+  if (flowDebug.visible) flowDebug.rebuild();
+};
 
 
 const menu = new Menu({
@@ -336,6 +342,11 @@ addEventListener('keydown', (ev) => {
     if (state.paused) menu.showPause(); else menu.hidePause();
   } else if (ABILITIES.some((a) => a.key === ev.key.toLowerCase())) {
     fireAbility(ABILITIES.find((a) => a.key === ev.key.toLowerCase()));
+  } else if (ev.key === 'f' || ev.key === 'F') {
+    const on = flowDebug.toggle();
+    hud.toast(on
+      ? `flow field: ${flowDebug.degenerate} dead cells (red)`
+      : 'flow field off');
   } else if (ev.key === 't' || ev.key === 'T') {
     cycleSpeed();
   } else if (ev.key === 'g' || ev.key === 'G') {
@@ -539,6 +550,7 @@ function autoplay(dt) {
 // ?perf=1        log a frame-time distribution every 60 frames
 const bench = { next: 2, step: 0, rate: Number(PARAMS.get('rate') ?? 4000) };
 
+if (PARAMS.get('flow') === '1') flowDebug.toggle();
 if (PARAMS.get('gold')) state.gold = Number(PARAMS.get('gold'));
 if (PARAMS.get('autobuild') === '1') autobuild();
 if (PARAMS.get('ramparts')) dropRamparts(Number(PARAMS.get('ramparts')));
@@ -672,6 +684,7 @@ function step(now) {
     waveText: waveText(),
     fps, ms: msAvg, computeMs, renderMs, speed: simSpeed, banner: bannerText(),
     spawned: horde.stats.spawned, cap: MAX_ORCS, selected: state.selected,
+    stalls: horde.stats.stuck ?? 0,
     recycling: horde.stats.recycling === true,
     costs: BUILDS.map((b) => build.costOf(b)),
     built: Object.fromEntries(BUILDS.map((b) => [b.id, build.builtOf(b.id)])),

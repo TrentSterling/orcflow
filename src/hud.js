@@ -14,7 +14,7 @@ export class Hud {
       waveN: $('w-n'), waveS: $('w-s'), waveMap: $('w-map'),
       speed: $('w-speed'), banner: $('banner'),
       fps: $('b-fps'), ms: $('b-ms'), compute: $('b-compute'), render: $('b-render'),
-      alive: $('b-alive'), spawned: $('b-spawned'), cap: $('b-cap'),
+      alive: $('b-alive'), spawned: $('b-spawned'), cap: $('b-cap'), stalls: $('b-stalls'),
       bar: $('bar'), toast: $('toast'), over: $('over'),
       overTitle: $('over-title'), overSub: $('over-sub'),
     };
@@ -99,6 +99,10 @@ export class Hud {
     e.render.textContent = s.renderMs != null ? `${s.renderMs.toFixed(2)} ms` : 'n/a';
     e.alive.textContent = fmt(s.alive);
     e.spawned.textContent = fmt(s.spawned);
+    // orc-frames that needed the goal-ward guarantee: near zero when the crowd
+    // physics is healthy, spiking the moment something stalls
+    e.stalls.textContent = fmt(s.stalls ?? 0);
+    e.stalls.style.color = (s.stalls ?? 0) > 400 ? '#e2564a' : '';
     e.cap.textContent = s.recycling ? `${fmt(s.cap)} ↻` : fmt(s.cap);
     e.cap.title = s.recycling ? 'at capacity: new orcs overwrite the oldest slots' : '';
 

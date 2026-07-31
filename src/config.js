@@ -62,6 +62,17 @@ export const SPRITE_PX = 16;             // orc sprite size in atlas
 // against the spatial hash. The flow field is the only thing that steers.
 export const BUCKET_K = 8;
 export const ORC_RADIUS = 0.22;          // half a grunt, for circle overlap
+// Ceiling on the single steering force, as a fraction of top speed. The flow
+// field always wins; this only decides how much a crowd may spread sideways to
+// fill the space it is walking through.
+export const SPREAD_AUTHORITY = 0.35;
+
+// How much of a contact's closing velocity is cancelled. Low on purpose: high
+// values brake bodies dead the instant they touch, which reads as sticky. Water
+// separates positionally and keeps sliding.
+export const CONTACT_DAMP = 0.12;
+
+
 export const RESTITUTION = 0.65;         // share of an overlap corrected per relaxation pass
 // Orc archetypes. CPU writes these into the GPU buffers at spawn time,
 // so adding a type never touches shader code.

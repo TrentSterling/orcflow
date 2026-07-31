@@ -287,10 +287,15 @@ export class Field {
         // An open cell with no downhill neighbour has nowhere to send anyone: the
         // base itself, or a pocket the base cannot reach. Anything standing there
         // would sit still forever, so fall back to heading at the base.
-        if (!walls[i] && !bx && !by && i !== start) {
+        //
+        // The base cell is included on purpose. Excluding it left cost-0 with a
+        // zero vector, every neighbouring cell blended against that zero, and the
+        // result was a dead ring around the base where arriving orcs stopped just
+        // outside the leak radius and never woke up.
+        if (!walls[i] && !bx && !by) {
           const dx = this.base.x - (x + 0.5), dy = this.base.y - (y + 0.5);
-          const m = Math.hypot(dx, dy) || 1;
-          bx = dx / m; by = dy / m;
+          const m = Math.hypot(dx, dy);
+          if (m > 1e-6) { bx = dx / m; by = dy / m; } else { bx = 0; by = -1; }
         }
         const len = Math.hypot(bx, by) || 1;
         hasDir[i] = (bx || by) ? 1 : 0;

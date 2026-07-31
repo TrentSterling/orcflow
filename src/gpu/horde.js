@@ -24,7 +24,7 @@ import {
 import {
   MAX_ORCS, SPAWN_BATCH, MAX_TURRETS, MAX_BLASTS, GRID_W, GRID_H,
   DENS_W, DENS_H, DENS_SCALE, CORPSE_FADE, BOUNTY_FLOOR,
-  BUCKET_K, ORC_RADIUS, RESTITUTION,
+  BUCKET_K, ORC_RADIUS, RESTITUTION, CONTACT_DAMP, SPREAD_AUTHORITY,
   BULLET_PIERCE_COST, BULLET_BLAST, BULLET_BLAST_MULT,
   MAX_BULLETS, MAX_MUZZLES, MUZZLE_BURST, BULLET_SPEED, BULLET_LIFE,
 } from '../config.js';
@@ -258,7 +258,13 @@ export class Horde {
                   // kill the approaching half of the relative velocity
                   const closing = dot(vel.sub(Q.zw), n).toVar();
                   If(closing.lessThan(0), () => {
-                    vel.subAssign(n.mul(closing.mul(0.5)));
+                    // Light normal impulse only. Cancelling half the closing speed
+                    // on every contact brakes a body dead the instant it touches
+                    // anything, and with eight neighbours it brakes eight times
+                    // over: that is the stickiness. Water separates positionally
+                    // and keeps sliding. Tangential velocity is never touched, so
+                    // bodies slip around each other instead of locking up.
+                    vel.subAssign(n.mul(closing.mul(float(CONTACT_DAMP))));
                   });
                 });
               });
@@ -404,7 +410,7 @@ export class Horde {
         // part of the relative velocity. Correcting position alone is an
         // oscillator: bodies shove apart, their unchanged velocity drives them
         // straight back together, and that is the jitter.
-        for (let iter = 0; iter < 2; iter++) {
+        for (let iter = 0; iter < 3; iter++) {
           const c = resolveContacts(p, v, instanceIndex);
           const to = p.add(c.push).toVar();
           If(isRock(to), () => {}).Else(() => { p.assign(to); });
