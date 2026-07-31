@@ -16,7 +16,7 @@ import { makeOrcAtlas } from './art.js';
 import { save } from './save.js';
 import { effects as metaEffects, relicsFor } from './meta.js';
 import { Menu } from './menu.js';
-import { startAudio, resumeAudio, configureAudio, sfx } from './audio.js';
+import { startAudio, resumeAudio, configureAudio, toggleMute, isMuted, sfx } from './audio.js';
 import {
   GRID_W, GRID_H, MAX_ORCS, BUILDS, BASE_HP, START_GOLD, ORC_TYPES, PARAMS, SPAWN_BATCH,
   DENS_W, DENS_H, DENS_SCALE, ABILITIES, SPEEDS,
@@ -53,6 +53,7 @@ if (attract) document.body.classList.add('attract');
 const hud = new Hud({
   onSelect: (i) => { state.selected = i; },
   onSpeed: () => cycleSpeed(),
+  onMute: () => { hud.toast(toggleMute() ? 'muted' : 'sound on'); },
   onStress: () => stress(10000),
   onFlood: () => flood(),
   onRestart: () => location.reload(),
@@ -353,6 +354,8 @@ addEventListener('keydown', (ev) => {
     if (state.sandbox) { state.sandbox = false; hud.toast('sandbox off'); }
     else { enterSandbox(); hud.toast('sandbox on: base invulnerable'); }
   } else if (ev.key === 'm' || ev.key === 'M') {
+    hud.toast(toggleMute() ? 'muted' : 'sound on');
+  } else if (ev.key === 'n' || ev.key === 'N') {
     startMap((mapIndex + 1) % MAPS.length);
   } else if (ev.key === 'r' || ev.key === 'R') {
     startMap(mapIndex);
@@ -682,7 +685,7 @@ function step(now) {
     alive: horde.stats.alive, kills: horde.stats.kills,
     wave: waves.wave, mapName: `${field.name}${BENCH ? '  [BENCH]' : ''}${isAutoplay() ? '  [AUTOPLAY]' : ''}`,
     waveText: waveText(),
-    fps, ms: msAvg, computeMs, renderMs, speed: simSpeed, banner: bannerText(),
+    fps, ms: msAvg, computeMs, renderMs, speed: simSpeed, muted: isMuted(), banner: bannerText(),
     spawned: horde.stats.spawned, cap: MAX_ORCS, selected: state.selected,
     stalls: horde.stats.stuck ?? 0,
     recycling: horde.stats.recycling === true,

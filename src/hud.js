@@ -6,7 +6,7 @@ import { BUILDS, ABILITIES } from './config.js';
 const $ = (id) => document.getElementById(id);
 
 export class Hud {
-  constructor({ onSelect, onStress, onFlood, onSpeed }) {
+  constructor({ onSelect, onStress, onFlood, onSpeed, onMute }) {
     this.el = {
       hud: $('hud'), boot: $('boot'), bootmsg: $('bootmsg'),
       hpfill: $('hpfill'), hptext: $('hptext'),
@@ -43,6 +43,8 @@ export class Hud {
     $('aboutbtn').addEventListener('click', () => about.classList.toggle('show'));
 
     $('w-speed').addEventListener('click', () => onSpeed?.());
+    this.el.mute = $('w-mute');
+    this.el.mute.addEventListener('click', () => onMute?.());
     $('b-stress').addEventListener('click', onStress);
     $('b-flood').addEventListener('click', onFlood);
     this._toastTimer = 0;
@@ -85,6 +87,11 @@ export class Hud {
     e.waveMap.textContent = s.mapName;
     e.speed.textContent = `${s.speed}x`;
     e.speed.classList.toggle('fast', s.speed > 1);
+    if (e.mute) {
+      const label = s.muted ? 'MUTED' : 'SOUND ON';
+      if (e.mute.textContent !== label) e.mute.textContent = label;
+      e.mute.classList.toggle('fast', !s.muted);
+    }
 
     const phase = s.banner ?? '';
     if (phase !== this._banner) {

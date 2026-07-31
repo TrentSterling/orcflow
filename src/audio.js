@@ -23,6 +23,20 @@ export function configureAudio({ sfx, music }) {
   if (musicGain) musicGain.gain.value = settings.music * 0.5;
 }
 
+// Quick mute. Keeps the slider values intact so unmuting restores exactly what
+// you had, rather than snapping back to a default.
+let muted = false;
+
+export function isMuted() { return muted; }
+
+export function setMuted(on) {
+  muted = on;
+  if (master) master.gain.value = on ? 0 : 0.9;
+  return muted;
+}
+
+export function toggleMute() { return setMuted(!muted); }
+
 export function startAudio() {
   if (started) return;
   const AC = globalThis.AudioContext ?? globalThis.webkitAudioContext;
