@@ -8,4 +8,6 @@ Set `ABOUT_LIVE_URL` to the full deployed game URL to repeat against production.
 
 The scoped panel adapter consumes neither a gameplay row nor canvas space. Existing title/menu visibility rules remain intact. It does not request or exit pointer lock, suspend game audio, or change fullscreen state. A visual-viewport adjustment keeps the control reachable on legacy pages whose game surface is wider than a phone.
 
+The approved shared revision is `83dbfb4d8241501012c5ec22be49d79f28ccf6b7`. Four cards contain CraftMine, poster-only SMEAR and two session-stable additional games. Visible previews autoplay muted only after opening; closing or hiding releases their sources. Reduced motion and Save-Data retain posters. Pages with a continuously running game use compact poster mode to conserve gameplay resources. The manifest identifies each page's policy.
+
 The manifest records the source commit and original repository baseline. A shared-component update must refresh its pinned hashes and rerun both suites before release.
