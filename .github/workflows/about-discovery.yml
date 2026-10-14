@@ -1,0 +1,37 @@
+name: About discovery checks
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  about-discovery:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: node --test tests/about-discovery/contract.cjs
+      - name: Build Voxel Heroes when applicable
+        if: github.event.repository.name == 'voxelheroes'
+        run: npm ci && npm run build
+      - name: Install browser tooling
+        run: |
+          npm install --prefix "$RUNNER_TEMP/about-tests" --no-save --package-lock=false --ignore-scripts playwright@1.62.0
+          node "$RUNNER_TEMP/about-tests/node_modules/playwright/cli.js" install --with-deps chrome
+          echo "NODE_PATH=$RUNNER_TEMP/about-tests/node_modules" >> "$GITHUB_ENV"
+      - name: Browser checks on the exact PR head
+        env:
+          REPO_NAME: ${{ github.event.repository.name }}
+        run: node tests/about-discovery/browser.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: about-discovery-evidence
+          path: .about-evidence/
+          include-hidden-files: true
+          retention-days: 7
