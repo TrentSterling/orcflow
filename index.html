@@ -319,8 +319,670 @@
 
 <script type="module" src="./src/main.js"></script>
 <!-- tront-about:start -->
-<style>.tront-about{position:fixed;left:12px;bottom:12px;z-index:2147483000;font:13px/1.5 system-ui,-apple-system,'Segoe UI',sans-serif;color:#e9ecef;text-align:left}.tront-about>summary{cursor:pointer;list-style:none;display:inline-block;background:#0b0d10d9;color:#e9ecef;border:1px solid #ffffff33;border-radius:999px;padding:6px 12px;backdrop-filter:blur(6px);user-select:none}.tront-about>summary::-webkit-details-marker{display:none}.tront-about>summary:hover{border-color:#ffffff66}.tront-about>div{margin-top:8px;width:min(560px,calc(100vw - 24px));max-height:70vh;overflow:auto;background:#0b0d10f5;border:1px solid #ffffff33;border-radius:12px;padding:14px 16px;box-shadow:0 12px 40px #000a}.tront-about h2{font-size:17px;margin:0 0 8px;color:#fff}.tront-about p{margin:0 0 9px}.tront-about a{color:#8fd3ff}.tront-about ul{margin:4px 0 10px;padding-left:18px}.tront-about li{margin:2px 0}.tront-about .tront-hub{opacity:.85;font-size:12px}</style>
-<details class="tront-about" id="trontAbout"><summary>About &middot; More by Tront</summary><div><h2>ORCFLOW by Tront</h2><p>ORCFLOW, subtitled Sir, We Have a Flow Field, is a free GPU tower defense game in Three.js. Every orc lives in a WebGPU storage buffer for its whole life: navigation over a flow field, crowd separation, damage, death and recycling all happen on the GPU, so the horde scales with your graphics card rather than your CPU.</p><p>One HTML file, no install, needs a desktop browser with WebGPU. Made by Tront (Trent Sterling) as one of a series of GPU crowd experiments that includes BIOMASS, BALLPIT and SEND DUDES.</p><p><strong>More from Tront</strong></p><ul><li><a href="https://tront.xyz/biomass/">BIOMASS</a>: GPU horde tower defense with a colossus boss: tens of thousands of creatures in WebGPU compute.</li><li><a href="https://tront.xyz/senddudes/">SEND DUDES</a>: Siege defense with 200,000 fighters simulated on the GPU. Hold the core, turn kills into reinforcements.</li><li><a href="https://tront.xyz/ballpit/">BALLPIT</a>: GPU contact physics testbed: 20,000 XPBD particles in WebGPU compute with solid map collision.</li></ul><p class="tront-hub"><a href="https://tront.xyz/games/">All games and tools</a> &middot; <a href="https://tront.xyz/blog/">Devlog</a> &middot; <a href="https://tront.xyz/discord/">Discord</a> &middot; <a href="https://github.com/TrentSterling/orcflow">Source on GitHub</a> &middot; <a href="https://tront.xyz/">tront.xyz</a></p></div></details>
+<!-- Shared discovery: TrentSterling/trentsterling.github.io@ae0ad2b7e0ed4c162787d1cb23fec8c8bfee88bf -->
+<style data-tront-discovery-css>
+.tront-discovery {
+    --td-surface: var(--item-bg, var(--te-panel-fill, #171c25));
+    --td-border: var(--border-color, var(--te-line, #56606f));
+    --td-text: var(--text-color, var(--te-ink, #f5f7fa));
+    --td-muted: var(--text-muted, var(--te-muted, #cad3e0));
+    --td-purple: var(--accent-purple, var(--te-accent, #a855f7));
+    --td-teal: var(--accent-teal, var(--te-accent, #2ee6d7));
+    --td-red: var(--status-dnd, var(--te-red, #f23f43));
+    --td-green: var(--status-online, var(--te-green, #23a55a));
+    box-sizing: border-box;
+    width: min(88ch, 100%);
+    margin: 1.5rem auto 0;
+    padding: clamp(1rem, 2.5vw, 1.5rem);
+    border: 1px solid var(--td-border);
+    border-top: 2px solid var(--td-purple);
+    border-radius: 12px;
+    background: var(--td-surface);
+    color: var(--td-text);
+    text-align: left;
+    font: inherit;
+}
+.tront-discovery *,
+.tront-discovery *::before,
+.tront-discovery *::after { box-sizing: border-box; }
+.tront-discovery__heading { margin: 0 0 1rem; }
+.tront-discovery__heading h2 {
+    margin: 0;
+    color: var(--td-text);
+    font-family: inherit;
+    font-size: clamp(1.25rem, 2.5vw, 1.6rem);
+    font-weight: 700;
+    line-height: 1.2;
+}
+.tront-discovery__about {
+    display: grid;
+    grid-template-columns: minmax(0, 1.3fr) minmax(13rem, .7fr);
+    gap: clamp(1rem, 3vw, 2rem);
+    margin: 0 0 1.15rem;
+    padding: 0 0 1.2rem;
+    border-bottom: 1px solid var(--td-border);
+}
+.tront-discovery__bio {
+    color: var(--td-muted);
+    font-size: .9rem;
+    line-height: 1.65;
+}
+.tront-discovery__bio p { margin: 0 0 .75rem; }
+.tront-discovery__bio p:last-child { margin-bottom: 0; }
+.tront-discovery__links {
+    padding-left: 1.2rem;
+    border-left: 1px solid var(--td-border);
+}
+.tront-discovery__links h3,
+.tront-discovery__games-title {
+    margin: 0 0 .6rem;
+    color: var(--td-text);
+    font-family: inherit;
+    font-size: 1rem;
+    font-weight: 700;
+    line-height: 1.35;
+    text-align: left;
+}
+.tront-discovery__links-list {
+    display: grid;
+    gap: .35rem;
+    margin: 0 0 .75rem;
+    padding: 0;
+    list-style: none;
+    color: var(--td-muted);
+    font-size: .82rem;
+    line-height: 1.5;
+}
+.tront-discovery__links-list a,
+.tront-discovery__hub a {
+    color: var(--td-teal);
+    text-decoration-thickness: .07em;
+    text-underline-offset: .16em;
+    word-break: normal;
+    overflow-wrap: anywhere;
+}
+.tront-discovery__hub {
+    margin: 0;
+    color: var(--td-muted);
+    font-size: .78rem;
+    line-height: 1.6;
+}
+.tront-discovery__games-title { margin-bottom: .75rem; }
+.tront-discovery__grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: .8rem;
+    align-items: stretch;
+}
+.tront-discovery__card {
+    --td-card-accent: var(--td-teal);
+    min-width: 0;
+    overflow: hidden;
+    border: 1px solid var(--td-border);
+    border-top: 2px solid var(--td-card-accent);
+    border-radius: 9px;
+    background: var(--td-surface);
+    color: var(--td-text);
+    text-align: left;
+}
+.tront-discovery__card[data-tront-discovery-game="craftmine"] { --td-card-accent: var(--td-green); }
+.tront-discovery__card[data-tront-discovery-game="smear"] { --td-card-accent: var(--td-red); }
+.tront-discovery__card[data-tront-discovery-game="inkride"],
+.tront-discovery__card[data-tront-discovery-game="tinytreads"],
+.tront-discovery__card[data-tront-discovery-game="tinyrise"] { --td-card-accent: var(--td-green); }
+.tront-discovery__card:focus-within {
+    border-color: var(--td-teal);
+    outline: 3px solid var(--td-teal);
+    outline-offset: 3px;
+}
+.tront-discovery__media {
+    position: relative;
+    overflow: hidden;
+    aspect-ratio: 16 / 9;
+    background: var(--bg-color, #0d0f14);
+}
+.tront-discovery__image-link { display: block; width: 100%; height: 100%; }
+.tront-discovery__poster {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+.tront-discovery [data-tront-discovery-video] {
+    position: absolute;
+    z-index: 1;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    background: #0d0f14;
+    object-fit: cover;
+    pointer-events: none;
+}
+.tront-discovery__image-link:focus-visible,
+.tront-discovery__title a:focus-visible {
+    outline: 3px solid var(--td-teal);
+    outline-offset: 3px;
+}
+.tront-discovery [hidden] { display: none !important; }
+.tront-discovery__content { padding: .75rem .8rem .85rem; }
+.tront-discovery__title {
+    margin: 0;
+    color: var(--td-text);
+    font-family: inherit;
+    font-size: 1rem;
+    font-weight: 700;
+    line-height: 1.35;
+}
+.tront-discovery__title a {
+    color: var(--td-teal);
+    text-decoration-thickness: .08em;
+    text-underline-offset: .18em;
+}
+.tront-discovery__description {
+    margin: .45rem 0;
+    color: var(--td-muted);
+    font-size: .82rem;
+    line-height: 1.5;
+}
+.tront-discovery__status {
+    margin: .75rem 0 0;
+    color: var(--td-muted);
+    font-size: .76rem;
+    line-height: 1.45;
+}
+.tront-discovery__status:empty { display: none; }
+@media (max-width: 760px) {
+    .tront-discovery__about { grid-template-columns: minmax(0, 1fr); gap: .8rem; }
+    .tront-discovery__links { padding: .8rem 0 0; border-left: 0; border-top: 1px solid var(--td-border); }
+    .tront-discovery__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 520px) {
+    .tront-discovery { padding: 1rem; }
+    .tront-discovery__grid { grid-template-columns: minmax(0, 1fr); gap: .7rem; }
+    .tront-discovery__content { padding: .7rem .75rem .8rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .tront-discovery *,
+    .tront-discovery *::before,
+    .tront-discovery *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }
+}
+</style>
+<style>
+#trontAbout{position:fixed;left:max(12px,env(safe-area-inset-left));bottom:max(12px,env(safe-area-inset-bottom));z-index:2147483000;font:13px/1.55 system-ui,-apple-system,'Segoe UI',sans-serif;text-align:left;color:var(--ta-text,#edf1f5);--td-surface:var(--ta-bg,#151b23);--td-border:var(--ta-line,#526070);--td-text:var(--ta-text,#edf1f5);--td-muted:var(--ta-muted,#c9d3df);--td-teal:var(--ta-link,#8fd3ff)}
+#trontAbout>summary{box-sizing:border-box;display:inline-flex;align-items:center;min-height:36px;padding:7px 11px;border:1px solid var(--ta-line,#526070);border-radius:8px;background:var(--ta-bg,#151b23);color:var(--ta-text,#edf1f5);font:600 12px/1.4 system-ui,sans-serif;cursor:pointer;list-style:none;user-select:none}
+#trontAbout>summary::-webkit-details-marker{display:none}
+#trontAbout>summary::after{content:'+';margin-left:10px;font-size:16px;line-height:1}
+#trontAbout[open]>summary::after{content:'-'}
+#trontAbout :focus-visible{outline:3px solid var(--ta-link,#8fd3ff);outline-offset:3px}
+#trontAbout>.tront-about-panel{position:absolute;left:0;bottom:calc(100% + 8px);box-sizing:border-box;width:min(680px,calc(100vw - 24px));max-height:min(65vh,620px);max-height:min(65dvh,620px);overflow:auto;overscroll-behavior:contain;background:var(--ta-bg,#151b23);color:var(--ta-text,#edf1f5);border:1px solid var(--ta-line,#526070);border-radius:12px;box-shadow:0 12px 40px #0006;padding:0 16px 16px;touch-action:pan-y;scrollbar-width:thin}
+#trontAbout .tront-about-toolbar{display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:2;background:var(--ta-bg,#151b23);padding:10px 0;margin:0 0 6px;border-bottom:1px solid var(--ta-line,#526070);gap:12px}
+#trontAbout .tront-about-toolbar span{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+#trontAbout .tront-about-close{position:static;display:inline-flex;align-items:center;justify-content:center;width:auto;height:auto;min-width:64px;min-height:36px;margin:0;padding:6px 10px;border:1px solid var(--ta-line,#526070);border-radius:6px;background:var(--ta-bg,#151b23);color:var(--ta-text,#edf1f5);font:600 12px/1.4 system-ui,sans-serif;cursor:pointer;box-shadow:none;transform:none}
+#trontAbout .tront-about-original{font-size:13px;line-height:1.6;text-align:left}
+#trontAbout .tront-about-original h2{font:700 20px/1.25 inherit;font-family:inherit;font-size:20px;line-height:1.25;color:inherit;margin:0 0 12px}
+#trontAbout .tront-about-original p{margin:0 0 12px;color:inherit}
+#trontAbout .tront-about-original a{color:var(--ta-link,#8fd3ff);text-decoration:underline;text-underline-offset:3px;overflow-wrap:anywhere}
+#trontAbout .tront-about-original ul{margin:0 0 12px;padding-left:20px}
+#trontAbout .tront-about-original li{margin:5px 0}
+#trontAbout .tront-about-original .tront-hub{font-size:12px;line-height:1.8}
+#trontAbout .tront-discovery{width:100%;margin:16px 0 0;padding:16px 0 0;background:transparent;border:0;border-top:1px solid var(--ta-line,#526070);border-radius:0;font:13px/1.55 system-ui,sans-serif;--td-surface:var(--ta-bg,#151b23);--td-border:var(--ta-line,#526070);--td-text:var(--ta-text,#edf1f5);--td-muted:var(--ta-muted,#c9d3df);--td-teal:var(--ta-link,#8fd3ff)}
+#trontAbout .tront-discovery__grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+#trontAbout .tront-discovery__games-title{font-size:16px}
+@media(max-width:520px){#trontAbout>.tront-about-panel{width:calc(100vw - 24px);padding:0 12px 12px;max-height:62dvh}#trontAbout .tront-discovery__grid{grid-template-columns:1fr}#trontAbout .tront-discovery__card{display:grid;grid-template-columns:38% minmax(0,1fr)}#trontAbout .tront-discovery__media{align-self:center}#trontAbout .tront-discovery__description{font-size:12px}#trontAbout .tront-discovery__content{padding:9px}}
+
+#trontAbout{--ta-bg:#111810;--ta-text:#dde5d6;--ta-muted:#b7c4ac;--ta-line:#52684b;--ta-link:#c5de77;}
+</style>
+<details class="tront-about" id="trontAbout"><summary aria-controls="trontAboutPanel" aria-expanded="false">About + games</summary>
+<div class="tront-about-panel" id="trontAboutPanel" role="region" aria-label="About and more by Tront"><div class="tront-about-toolbar"><span>About / More by Tront</span><button class="tront-about-close" type="button" aria-label="Close About and return to game">Close</button></div>
+<div class="tront-about-original"><h2>ORCFLOW by Tront</h2><p>ORCFLOW, subtitled Sir, We Have a Flow Field, is a free GPU tower defense game in Three.js. Every orc lives in a WebGPU storage buffer for its whole life: navigation over a flow field, crowd separation, damage, death and recycling all happen on the GPU, so the horde scales with your graphics card rather than your CPU.</p><p>One HTML file, no install, needs a desktop browser with WebGPU. Made by Tront (Trent Sterling) as one of a series of GPU crowd experiments that includes BIOMASS, BALLPIT and SEND DUDES.</p><p><strong>More from Tront</strong></p><ul><li><a href="https://tront.xyz/biomass/">BIOMASS</a>: GPU horde tower defense with a colossus boss: tens of thousands of creatures in WebGPU compute.</li><li><a href="https://tront.xyz/senddudes/">SEND DUDES</a>: Siege defense with 200,000 fighters simulated on the GPU. Hold the core, turn kills into reinforcements.</li><li><a href="https://tront.xyz/ballpit/">BALLPIT</a>: GPU contact physics testbed: 20,000 XPBD particles in WebGPU compute with solid map collision.</li></ul><p class="tront-hub"><a href="https://tront.xyz/games/">All games and tools</a> &middot; <a href="https://tront.xyz/blog/">Devlog</a> &middot; <a href="https://tront.xyz/discord/">Discord</a> &middot; <a href="https://github.com/TrentSterling/orcflow">Source on GitHub</a> &middot; <a href="https://tront.xyz/">tront.xyz</a></p></div>
+<section class="tront-discovery" data-tront-discovery data-current-game="orcflow" aria-labelledby="trontDiscoveryTitle"><h3 class="tront-discovery__games-title" id="trontDiscoveryTitle">More to play</h3><div class="tront-discovery__grid" data-tront-discovery-cards></div><p class="tront-discovery__status" data-tront-discovery-status role="status" aria-live="polite"></p></section>
+</div></details>
+<script data-tront-discovery-js>
+(function (root) {
+    'use strict';
+    if (!root || !root.document || root.TrontAboutDiscovery) return;
+
+    var doc = root.document;
+    var STORAGE_KEY = 'tront-about-discovery-session-v1';
+    var FIXED_IDS = ['craftmine', 'smear'];
+    var RANDOM_IDS = ['inkride', 'tinytreads', 'tinyrise'];
+    var GAMES = [
+        {
+            id: 'craftmine', title: 'CraftMine', year: '2025',
+            href: '/craftmine/', poster: '/games/media/craftmine-2025.webp?v=6548c556b7e9',
+            preview: '/games/media/craftmine-2025.mp4?v=741b400e1a9b',
+            description: 'Build, dig, and blow holes in a voxel world, solo or with friends.'
+        },
+        {
+            id: 'smear', title: 'SMEAR', year: '2026',
+            href: '/smear/', poster: '/games/media/smear-2026.webp?v=475c3f008f06',
+            preview: null,
+            description: 'Grab dummies, break things and drag the mess around.',
+        },
+        {
+            id: 'inkride', title: 'INKRIDE', year: '2026',
+            href: '/inkride/', poster: '/games/media/inkride-2026.webp?v=c70ac4423864',
+            preview: '/games/media/inkride-2026.mp4?v=1590f82ebd34',
+            description: 'Draw tracks in ink, ride them and crash beautifully in a shared physics sketchbook.'
+        },
+        {
+            id: 'tinytreads', title: 'Tiny Treads', year: '2026',
+            href: '/tinytreads/', poster: '/games/media/tiny-treads-2026.webp?v=695d0c68976e',
+            preview: '/games/media/tiny-treads-2026.mp4?v=754ee2ee465a',
+            description: 'Trade artillery shots across destructible terrain in turn-based battles.'
+        },
+        {
+            id: 'tinyrise', title: 'Tinyrise', year: '2026',
+            href: '/tinyrise/', poster: '/games/media/tinyrise-2026.webp?v=b27e4bc4479e',
+            preview: '/games/media/tinyrise-2026.mp4?v=7c59e1b5395f',
+            description: 'Build a city, then zoom in to follow one tiny life using its streets and stairs.'
+        }
+    ];
+    var ALIASES = {
+        craftmine: 'craftmine', 'craft-mine': 'craftmine',
+        smear: 'smear',
+        inkride: 'inkride', 'ink-ride': 'inkride',
+        tinytreads: 'tinytreads', 'tiny-treads': 'tinytreads', 'tiny-tread': 'tinytreads',
+        tinyrise: 'tinyrise', 'tiny-rise': 'tinyrise'
+    };
+    var memoryChoice = null;
+    var sharedVideo = null;
+    var activeCard = null;
+    var activeGeneration = 0;
+    var initialized = false;
+    var visibilityObserver = null;
+
+    function findGame(id) {
+        for (var i = 0; i < GAMES.length; i += 1) if (GAMES[i].id === id) return GAMES[i];
+        return null;
+    }
+
+    function canonicalGameId(value) {
+        if (value == null) return null;
+        var text = String(value).trim().toLowerCase();
+        if (!text) return null;
+        try {
+            if (/^(https?:)?\/\//i.test(text)) text = new root.URL(text, root.location && root.location.href).pathname;
+        } catch (_) { /* A route string still works if URL construction is unavailable. */ }
+        text = text.replace(/[?#].*$/, '').replace(/\/+$/, '').replace(/\/index(?:\.html?)?$/, '');
+        var parts = text.split('/').filter(Boolean);
+        for (var i = parts.length - 1; i >= 0; i -= 1) {
+            var token = parts[i].replace(/[^a-z0-9 -]/g, '').replace(/\s+/g, '-');
+            if (ALIASES[token]) return ALIASES[token];
+        }
+        return null;
+    }
+
+    function currentGameFor(host) {
+        var explicit = host && host.getAttribute && host.getAttribute('data-current-game');
+        if (!explicit && doc.documentElement && doc.documentElement.getAttribute) {
+            explicit = doc.documentElement.getAttribute('data-current-game') || doc.documentElement.getAttribute('data-tront-game');
+        }
+        var current = canonicalGameId(explicit);
+        if (current) return current;
+        var canonical = doc.querySelector && doc.querySelector('link[rel="canonical"]');
+        return canonicalGameId(canonical && (canonical.href || canonical.getAttribute('href')) || (root.location && root.location.pathname));
+    }
+
+    function getStorage(options) {
+        if (options && Object.prototype.hasOwnProperty.call(options, 'storage')) return options.storage;
+        try { return root.sessionStorage; } catch (_) { return null; }
+    }
+
+    function safeRead(storage) {
+        try { return storage && storage.getItem(STORAGE_KEY); } catch (_) { return null; }
+    }
+
+    function safeWrite(storage, value) {
+        try { if (storage) storage.setItem(STORAGE_KEY, value); } catch (_) { /* The in-memory choice remains stable for this page. */ }
+    }
+
+    function isRandomId(id) {
+        return RANDOM_IDS.indexOf(id) !== -1;
+    }
+
+    function stableSessionChoice(storage, random) {
+        var saved = safeRead(storage);
+        if (isRandomId(saved)) {
+            memoryChoice = saved;
+            return saved;
+        }
+        if (isRandomId(memoryChoice)) {
+            safeWrite(storage, memoryChoice);
+            return memoryChoice;
+        }
+        var roll = Number(random());
+        if (!isFinite(roll)) roll = 0;
+        roll = Math.max(0, Math.min(0.999999999, roll));
+        var selected = RANDOM_IDS[Math.floor(roll * RANDOM_IDS.length)];
+        memoryChoice = selected;
+        safeWrite(storage, selected);
+        return selected;
+    }
+
+    function selectAdditionalGame(currentGame, options) {
+        options = options || {};
+        var current = canonicalGameId(currentGame);
+        var storage = getStorage(options);
+        var random = typeof options.random === 'function' ? options.random : function () { return root.Math.random(); };
+        var selected = stableSessionChoice(storage, random);
+        if (selected !== current) return selected;
+
+        // Keep the session's random pick stable on other pages. If this is the
+        // current game, show the next eligible candidate without replacing it.
+        var index = RANDOM_IDS.indexOf(selected);
+        for (var offset = 1; offset < RANDOM_IDS.length; offset += 1) {
+            var alternate = RANDOM_IDS[(index + offset) % RANDOM_IDS.length];
+            if (alternate !== current) return alternate;
+        }
+        return null;
+    }
+
+    function selectGameIds(currentGame, options) {
+        var current = canonicalGameId(currentGame);
+        var ids = FIXED_IDS.filter(function (id) { return id !== current; });
+        var additional = selectAdditionalGame(current, options);
+        if (additional && ids.indexOf(additional) === -1) ids.push(additional);
+        return ids;
+    }
+
+    function previewAllowed() {
+        try {
+            if (root.matchMedia && root.matchMedia('(prefers-reduced-motion: reduce)').matches) return false;
+        } catch (_) { /* Continue when matchMedia is unavailable. */ }
+        try {
+            return !(root.navigator && root.navigator.connection && root.navigator.connection.saveData);
+        } catch (_) { return true; }
+    }
+
+    function cardIsVisible(card) {
+        if (!card || doc.hidden) return false;
+        var rect = card.getBoundingClientRect();
+        var width = root.innerWidth || doc.documentElement.clientWidth || 0;
+        var height = root.innerHeight || doc.documentElement.clientHeight || 0;
+        return rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.top < height && rect.right > 0 && rect.left < width;
+    }
+
+    function setStatus(host, message) {
+        var status = host && host.querySelector && host.querySelector('[data-tront-discovery-status]');
+        if (status) status.textContent = message;
+    }
+
+    function getSharedVideo() {
+        if (sharedVideo) return sharedVideo;
+        sharedVideo = doc.createElement('video');
+        sharedVideo.setAttribute('data-tront-discovery-video', '');
+        sharedVideo.setAttribute('aria-hidden', 'true');
+        sharedVideo.setAttribute('playsinline', '');
+        sharedVideo.setAttribute('tabindex', '-1');
+        sharedVideo.preload = 'none';
+        sharedVideo.muted = true;
+        sharedVideo.loop = true;
+        sharedVideo.playsInline = true;
+        sharedVideo.hidden = true;
+        return sharedVideo;
+    }
+
+    function releaseCurrent() {
+        if (!activeCard) return;
+        activeCard = null;
+        activeGeneration += 1;
+        if (sharedVideo) {
+            sharedVideo.onplaying = null;
+            sharedVideo.onerror = null;
+            try { sharedVideo.pause(); } catch (_) { /* The poster remains visible. */ }
+            sharedVideo.hidden = true;
+            sharedVideo.removeAttribute('src');
+            try { sharedVideo.load(); } catch (_) { /* The source is already detached. */ }
+        }
+    }
+
+    function failPreview(generation) {
+        if (generation !== activeGeneration || !activeCard) return;
+        var card = activeCard;
+        var title = card._trontDiscoveryGame.title;
+        releaseCurrent();
+        setStatus(card._trontDiscoveryHost, title + ' preview unavailable.');
+    }
+
+    function activate(card) {
+        if (!card || !previewAllowed()) return false;
+        if (!cardIsVisible(card)) return false;
+        if (activeCard === card && sharedVideo && sharedVideo.getAttribute('src')) return true;
+        var game = card._trontDiscoveryGame;
+        if (!game || !game.preview || doc.hidden) return false;
+        if (activeCard) releaseCurrent();
+
+        var video = getSharedVideo();
+        var media = card.querySelector('.tront-discovery__media');
+        if (!media) return false;
+        media.appendChild(video);
+        activeCard = card;
+        activeGeneration += 1;
+        var generation = activeGeneration;
+        video.hidden = true;
+        video.onplaying = function () {
+            if (generation !== activeGeneration || activeCard !== card) return;
+            video.hidden = false;
+            setStatus(card._trontDiscoveryHost, 'Previewing ' + game.title + '.');
+        };
+        video.onerror = function () { failPreview(generation); };
+        video.setAttribute('src', game.preview);
+        video.setAttribute('data-tront-request', String(generation));
+        video.load();
+        setStatus(card._trontDiscoveryHost, 'Loading ' + game.title + ' preview.');
+        try {
+            var playback = video.play();
+            if (playback && typeof playback.catch === 'function') playback.catch(function () { failPreview(generation); });
+        } catch (_) { failPreview(generation); }
+        return true;
+    }
+
+    function createText(tag, className, text) {
+        var element = doc.createElement(tag);
+        if (className) element.className = className;
+        if (text != null) element.textContent = text;
+        return element;
+    }
+
+    function createCard(host, game) {
+        var article = createText('article', 'tront-discovery__card');
+        article.setAttribute('data-tront-discovery-game', game.id);
+        var state = { hovered: false, focused: false };
+        article._trontDiscoveryGame = game;
+        article._trontDiscoveryHost = host;
+        article._trontDiscoveryState = state;
+
+        var media = createText('div', 'tront-discovery__media');
+        var imageLink = doc.createElement('a');
+        imageLink.className = 'tront-discovery__image-link';
+        imageLink.href = game.href;
+        imageLink.setAttribute('aria-label', 'Open ' + game.title + ' (' + game.year + ')');
+        var image = doc.createElement('img');
+        image.className = 'tront-discovery__poster';
+        image.src = game.poster;
+        image.alt = game.title + ' (' + game.year + ') gameplay poster';
+        image.loading = 'lazy';
+        image.decoding = 'async';
+        image.width = 640;
+        image.height = 360;
+        imageLink.appendChild(image);
+        media.appendChild(imageLink);
+
+        var content = createText('div', 'tront-discovery__content');
+        var heading = doc.createElement('h3');
+        heading.className = 'tront-discovery__title';
+        var titleLink = doc.createElement('a');
+        titleLink.href = game.href;
+        titleLink.textContent = game.title;
+        heading.appendChild(titleLink);
+        content.appendChild(heading);
+        content.appendChild(createText('p', 'tront-discovery__description', game.description));
+        article.appendChild(media);
+        article.appendChild(content);
+
+        article.addEventListener('pointerenter', function (event) {
+            if (event.pointerType === 'touch') return;
+            state.hovered = true;
+            activate(article);
+        });
+        article.addEventListener('pointerleave', function (event) {
+            if (event.pointerType === 'touch') return;
+            state.hovered = false;
+            if (!state.focused && activeCard === article) releaseCurrent();
+        });
+        article.addEventListener('focusin', function (event) {
+            var focusVisible = false;
+            try { focusVisible = event.target.matches && event.target.matches(':focus-visible'); } catch (_) { /* Keyboard modality remains the fallback. */ }
+            if (!focusVisible) return;
+            state.focused = true;
+            activate(article);
+        });
+        article.addEventListener('focusout', function (event) {
+            if (event.relatedTarget && article.contains(event.relatedTarget)) return;
+            state.focused = false;
+            if (!state.hovered && activeCard === article) releaseCurrent();
+        });
+        return article;
+    }
+
+    function updateRootsForMotion() {
+        if (!previewAllowed()) releaseCurrent();
+    }
+
+    function disclosureChain(host) {
+        var chain = [];
+        for (var parent = host && host.parentElement; parent; parent = parent.parentElement) {
+            if (parent.tagName && String(parent.tagName).toLowerCase() === 'details') chain.push(parent);
+        }
+        return chain;
+    }
+
+    function disclosuresAreOpen(chain) {
+        for (var i = 0; i < chain.length; i += 1) if (!chain[i].open) return false;
+        return true;
+    }
+
+    function watchDisclosures(host, chain) {
+        var watched = host._trontDiscoveryWatchedDetails || (host._trontDiscoveryWatchedDetails = []);
+        for (var i = 0; i < chain.length; i += 1) {
+            var disclosure = chain[i];
+            if (watched.indexOf(disclosure) !== -1) continue;
+            watched.push(disclosure);
+            disclosure.addEventListener('toggle', function () {
+                var currentChain = disclosureChain(host);
+                if (!disclosuresAreOpen(currentChain)) {
+                    if (activeCard && host.contains(activeCard)) releaseCurrent();
+                    return;
+                }
+                setupHost(host);
+            });
+        }
+    }
+
+    function setupHost(host) {
+        if (!host || host._trontDiscoveryReady) return;
+        var grid = host.querySelector('[data-tront-discovery-cards]');
+        if (!grid) return;
+        var chain = disclosureChain(host);
+        watchDisclosures(host, chain);
+        if (!disclosuresAreOpen(chain)) return;
+        host._trontDiscoveryReady = true;
+        var selected = selectGameIds(currentGameFor(host), {storage: getStorage()});
+        while (grid.firstChild) grid.removeChild(grid.firstChild);
+        for (var i = 0; i < selected.length; i += 1) {
+            var game = findGame(selected[i]);
+            if (!game) continue;
+            var card = createCard(host, game);
+            grid.appendChild(card);
+            if (visibilityObserver) visibilityObserver.observe(card);
+        }
+        setStatus(host, '');
+    }
+
+    function start() {
+        if (initialized) return;
+        initialized = true;
+        if (typeof root.IntersectionObserver === 'function') {
+            visibilityObserver = new root.IntersectionObserver(function (entries) {
+                entries.forEach(function (entry) {
+                    var card = entry.target;
+                    var state = card._trontDiscoveryState;
+                    if (!entry.isIntersecting || entry.intersectionRatio <= 0) {
+                        if (activeCard === card) releaseCurrent();
+                    } else if (state && (state.hovered || state.focused)) activate(card);
+                });
+            }, { root: null, threshold: 0 });
+        }
+        var hosts = doc.querySelectorAll('[data-tront-discovery]');
+        for (var i = 0; i < hosts.length; i += 1) setupHost(hosts[i]);
+        doc.addEventListener('visibilitychange', function () { if (doc.hidden) releaseCurrent(); });
+        try {
+            var motion = root.matchMedia && root.matchMedia('(prefers-reduced-motion: reduce)');
+            if (motion && motion.addEventListener) motion.addEventListener('change', updateRootsForMotion);
+            else if (motion && motion.addListener) motion.addListener(updateRootsForMotion);
+            var connection = root.navigator && root.navigator.connection;
+            if (connection && connection.addEventListener) connection.addEventListener('change', updateRootsForMotion);
+        } catch (_) { /* Preferences are checked again whenever a preview is requested. */ }
+        updateRootsForMotion();
+    }
+
+    var api = {
+        version: 1,
+        canonicalGameId: canonicalGameId,
+        currentGameFor: currentGameFor,
+        selectAdditionalGame: selectAdditionalGame,
+        selectGameIds: selectGameIds,
+        catalog: GAMES.map(function (game) { return Object.assign({}, game); })
+    };
+    root.TrontAboutDiscovery = api;
+    if (doc.readyState === 'loading') doc.addEventListener('DOMContentLoaded', start, {once: true});
+    else start();
+})(window);
+</script>
+<script>
+(function () {
+    'use strict';
+    var about = document.getElementById('trontAbout');
+    if (!about) return;
+    var summary = about.querySelector('summary');
+    var panel = about.querySelector('.tront-about-panel');
+    function close() { about.open = false; summary.focus({preventScroll: true}); }
+    about.querySelector('.tront-about-close').addEventListener('click', close);
+    about.addEventListener('keydown', function (event) {
+        if (!about.open) {
+            if (event.target === summary && (event.key === 'Enter' || event.key === ' ')) event.stopPropagation();
+            return;
+        }
+        if (event.key === 'Escape') { event.preventDefault(); close(); }
+        event.stopPropagation();
+    });
+    // Keep interactions with site chrome out of bubbling game input handlers.
+    // Key releases still reach the game so a held movement key cannot get stuck.
+    ['pointerdown', 'pointerup', 'pointermove', 'mousedown', 'mouseup', 'click', 'dblclick', 'touchstart', 'touchend', 'wheel', 'contextmenu'].forEach(function (type) {
+        about.addEventListener(type, function (event) { event.stopPropagation(); });
+    });
+    about.addEventListener('toggle', function () {
+        summary.setAttribute('aria-expanded', String(about.open));
+        if (about.open) panel.scrollTop = 0;
+    });
+    // A few legacy games have a deliberately wide playfield on phones. Anchor
+    // only this disclosure to the visible viewport without resizing their game.
+    if (window.visualViewport) {
+        function fitVisibleViewport() {
+            var view = window.visualViewport;
+            var lift = Math.max(0, window.innerHeight - view.height - view.offsetTop);
+            about.style.transform = lift > 1 ? 'translateY(-' + lift + 'px)' : '';
+            panel.style.maxWidth = Math.max(180, view.width - 24) + 'px';
+            panel.style.maxHeight = Math.min(620, view.height * .62) + 'px';
+        }
+        window.visualViewport.addEventListener('resize', fitVisibleViewport);
+        window.visualViewport.addEventListener('scroll', fitVisibleViewport);
+        fitVisibleViewport();
+    }
+})();
+</script>
 <script type="application/ld+json">{"@context": "https://schema.org", "@type": "VideoGame", "name": "ORCFLOW", "alternateName": ["ORCFLOW by Tront"], "url": "https://tront.xyz/orcflow/", "description": "GPU tower defense where every orc lives in a WebGPU storage buffer for its whole life.", "author": {"@type": "Person", "name": "Trent Sterling", "alternateName": "Tront", "url": "https://tront.xyz/"}, "publisher": {"@type": "Organization", "name": "Tront", "url": "https://tront.xyz/"}, "isAccessibleForFree": true, "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"}, "applicationCategory": "GameApplication", "operatingSystem": "Web browser", "genre": "Tower defense", "playMode": "SinglePlayer", "gamePlatform": "Web browser", "image": "https://tront.xyz/orcflow/og-image.png"}</script>
 <!-- tront-about:end -->
 </body>

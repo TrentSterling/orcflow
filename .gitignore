@@ -1,3 +1,5 @@
 shots/
 node_modules/
 *.log
+
+.about-evidence/
